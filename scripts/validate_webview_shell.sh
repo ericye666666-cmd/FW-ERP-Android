@@ -60,9 +60,30 @@ grep -q 'WindowInsets.Type.ime()' "$MAIN_ACTIVITY"
 grep -q 'setOnApplyWindowInsetsListener' "$MAIN_ACTIVITY"
 grep -q 'SYSTEM_UI_FLAG_IMMERSIVE_STICKY' "$MAIN_ACTIVITY"
 grep -q 'SOFT_INPUT_ADJUST_RESIZE' "$MAIN_ACTIVITY"
+grep -q 'SCANNER_INPUT_FOCUS_SCRIPT' "$MAIN_ACTIVITY"
+grep -q 'focusScannerInput' "$MAIN_ACTIVITY"
+grep -q 'evaluateJavascript(SCANNER_INPUT_FOCUS_SCRIPT, null)' "$MAIN_ACTIVITY"
+grep -q 'onPageFinished' "$MAIN_ACTIVITY"
+grep -q "data-scan-input') === 'true'" "$MAIN_ACTIVITY"
+grep -q 'return 1000' "$MAIN_ACTIVITY"
+grep -q 'barcode' "$MAIN_ACTIVITY"
+grep -q 'return 800' "$MAIN_ACTIVITY"
+grep -q 'scan' "$MAIN_ACTIVITY"
+grep -q 'machine_code' "$MAIN_ACTIVITY"
+grep -q 'type === "search"' "$MAIN_ACTIVITY"
+grep -q 'return 100' "$MAIN_ACTIVITY"
+grep -q 'activeScore >= bestScore' "$MAIN_ACTIVITY"
 grep -q 'FW-ERP `/app/`' "$README"
 grep -q '#195 PDA UI is reused through /app' "$README"
 grep -q 'Native scanner, Bluetooth printing, and offline queue' "$README"
+grep -q 'PDA scanner input mode' "$README"
+grep -q 'hardware Enter' "$README"
+grep -q 'No native scanner SDK' "$README"
+
+if grep -q 'KEYCODE_ENTER\|setOnKeyListener\|dispatchKeyEvent' "$MAIN_ACTIVITY"; then
+  echo "Android shell must let hardware Enter reach the focused FW-ERP input." >&2
+  exit 1
+fi
 
 if grep -q 'clearCache\\|clearHistory\\|clearFormData\\|CookieManager.getInstance().remove\\|WebStorage.getInstance().delete' "$MAIN_ACTIVITY"; then
   echo "Android shell must not proactively clear WebView cookies or storage." >&2
@@ -71,6 +92,11 @@ fi
 
 if grep -R --exclude='MainActivity.kt' --exclude='README.md' -E '/api/v1|OkHttp|Retrofit|HttpURLConnection' "$ROOT_DIR/app" >/dev/null 2>&1; then
   echo "Android shell must not add direct ERP API clients." >&2
+  exit 1
+fi
+
+if grep -R -E 'Zebra|Honeywell|Urovo|CameraX|androidx\.camera' "$ROOT_DIR/app" "$ROOT_DIR/build.gradle.kts" "$ROOT_DIR/settings.gradle.kts" >/dev/null 2>&1; then
+  echo "Android shell must not add native scanner SDKs or CameraX for keyboard-mode scanners." >&2
   exit 1
 fi
 
