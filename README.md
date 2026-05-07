@@ -21,12 +21,15 @@ should update those BuildConfig values instead of changing app logic.
 - Android does not duplicate ERP business logic.
 - Android does not call FW-ERP APIs directly yet.
 - Native scanner, Bluetooth printing, and offline queue will be separate future PRs.
+- WebView only: no ERP API duplication and no copied frontend.
 
 ## Current behavior
 
 - App name: `Direct Loop PDA`.
 - Opens FW-ERP `/app/` in a portrait-only Android WebView.
+- Shows a loading view while FW-ERP print queue pages load.
 - Enables JavaScript, DOM storage, localStorage/sessionStorage, cookies, and WebView persistence needed for login.
+- Flushes cookies without proactively clearing WebView storage.
 - Keeps FW-ERP role landing inside the web app:
   - `store_clerk` can reach the PDA clerk flow, including #195 PDA 现场分堆标价 UI.
   - `store_manager` can reach the manager flow when available.
@@ -34,15 +37,25 @@ should update those BuildConfig values instead of changing app logic.
 - Supports Android back:
   - WebView `goBack()` when history exists.
   - Normal app exit when there is no WebView history.
-- Provides a network/offline error view with a retry button.
+- Provides a network/offline error view with the current URL and a retry button.
+- Uses Android resize behavior so soft keyboard input fields are not fully covered.
 - Requests camera permission only for WebView camera/file chooser use.
 - Supports WebView file chooser with image selection and camera capture.
+
+## Print Queue Boundary
+
+- Android only creates print jobs by letting the operator use FW-ERP WebView pages.
+- Android does not connect to printers, send TSPL, or call native print APIs.
+- Real printing is completed by the FW-ERP Print Agent from the FW-ERP print queue.
+- Label size selection for `60x40 / 40x30` (60×40 / 40×30) stays in the FW-ERP web page.
+- Android does not duplicate FW-ERP APIs, print queue logic, label templates, or barcode generation.
 
 ## Non-goals
 
 - No native rebuild of #195 screens.
 - No copied FW-ERP frontend files.
 - No duplicate Android API clients.
+- No Bluetooth permission flow, socket connection, device discovery, or TSPL sending.
 - No backend code.
 - No hardcoded secrets.
 - No APK/build outputs committed.
