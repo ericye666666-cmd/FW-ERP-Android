@@ -13,6 +13,9 @@ import android.provider.MediaStore
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -26,6 +29,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.FileProvider
 import java.io.File
@@ -36,17 +40,25 @@ import java.util.Locale
 class MainActivity : Activity() {
     private lateinit var rootLayout: FrameLayout
     private lateinit var webView: WebView
+    private lateinit var loadingContainer: LinearLayout
     private lateinit var offlineContainer: LinearLayout
+    private lateinit var currentUrlText: TextView
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraUri: Uri? = null
     private var pendingWebPermissionRequest: PermissionRequest? = null
+    private var lastRequestedUrl = BuildConfig.FW_ERP_APP_URL
+    private var lastFailedUrl = BuildConfig.FW_ERP_APP_URL
+    private var mainFrameLoadFailed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configureWindow()
 
         rootLayout = FrameLayout(this)
+        configureKeyboardInsets()
         webView = WebView(this)
+        loadingContainer = buildLoadingView()
         offlineContainer = buildOfflineView()
 
         rootLayout.addView(
@@ -63,15 +75,64 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             ),
         )
+        rootLayout.addView(
+            loadingContainer,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
 
         setContentView(rootLayout)
+        hideSystemUi()
         configureWebView()
 
         if (savedInstanceState == null) {
             webView.loadUrl(BuildConfig.FW_ERP_APP_URL)
         } else {
             webView.restoreState(savedInstanceState)
+            hideLoadingScreen()
         }
+    }
+
+    private fun configureWindow() {
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    }
+
+    private fun configureKeyboardInsets() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return
+        }
+
+        rootLayout.setOnApplyWindowInsetsListener { view, insets ->
+            val imeBottom = if (insets.isVisible(WindowInsets.Type.ime())) {
+                insets.getInsets(WindowInsets.Type.ime()).bottom
+            } else {
+                0
+            }
+            view.setPadding(0, 0, 0, imeBottom)
+            insets
+        }
+    }
+
+    private fun hideSystemUi() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.let { controller ->
+                controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+            return
+        }
+
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
     }
 
     private fun configureWebView() {
@@ -105,6 +166,40 @@ class MainActivity : Activity() {
         webView.webChromeClient = DirectLoopWebChromeClient()
     }
 
+    private fun buildLoadingView(): LinearLayout {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(48, 48, 48, 48)
+            setBackgroundColor(Color.rgb(15, 23, 42))
+            visibility = View.VISIBLE
+        }
+
+        val title = TextView(this).apply {
+            text = SPLASH_TITLE
+            textSize = 28f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+        }
+
+        val progressBar = ProgressBar(this).apply {
+            isIndeterminate = true
+            setPadding(0, 28, 0, 12)
+        }
+
+        val status = TextView(this).apply {
+            text = getString(R.string.loading)
+            textSize = 15f
+            setTextColor(Color.rgb(203, 213, 225))
+            gravity = Gravity.CENTER
+        }
+
+        container.addView(title)
+        container.addView(progressBar)
+        container.addView(status)
+        return container
+    }
+
     private fun buildOfflineView(): LinearLayout {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -129,26 +224,52 @@ class MainActivity : Activity() {
             setPadding(0, 18, 0, 24)
         }
 
+        currentUrlText = TextView(this).apply {
+            text = getString(R.string.current_url, BuildConfig.FW_ERP_APP_URL)
+            textSize = 13f
+            setTextColor(Color.rgb(100, 116, 139))
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 24)
+        }
+
         val retryButton = Button(this).apply {
             text = getString(R.string.retry)
             setOnClickListener {
-                hideOfflineScreen()
-                webView.reload()
+                retryLastUrl()
             }
         }
 
         container.addView(title)
         container.addView(body)
+        container.addView(currentUrlText)
         container.addView(retryButton)
         return container
     }
 
-    private fun showOfflineScreen() {
+    private fun showLoadingScreen() {
+        loadingContainer.visibility = View.VISIBLE
+        loadingContainer.bringToFront()
+    }
+
+    private fun hideLoadingScreen() {
+        loadingContainer.visibility = View.GONE
+    }
+
+    private fun showOfflineScreen(url: String = lastRequestedUrl) {
+        lastFailedUrl = url.ifBlank { BuildConfig.FW_ERP_APP_URL }
+        currentUrlText.text = getString(R.string.current_url, lastFailedUrl)
         offlineContainer.visibility = View.VISIBLE
+        offlineContainer.bringToFront()
     }
 
     private fun hideOfflineScreen() {
         offlineContainer.visibility = View.GONE
+    }
+
+    private fun retryLastUrl() {
+        hideOfflineScreen()
+        showLoadingScreen()
+        webView.loadUrl(lastFailedUrl.ifBlank { BuildConfig.FW_ERP_APP_URL })
     }
 
     private inner class DirectLoopWebViewClient : WebViewClient() {
@@ -166,13 +287,27 @@ class MainActivity : Activity() {
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+            lastRequestedUrl = url
+            mainFrameLoadFailed = false
             hideOfflineScreen()
+            showLoadingScreen()
             super.onPageStarted(view, url, favicon)
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+            CookieManager.getInstance().flush()
+            if (!mainFrameLoadFailed) {
+                hideOfflineScreen()
+                hideLoadingScreen()
+            }
+            super.onPageFinished(view, url)
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (request.isForMainFrame) {
-                showOfflineScreen()
+                mainFrameLoadFailed = true
+                hideLoadingScreen()
+                showOfflineScreen(request.url.toString())
             }
             super.onReceivedError(view, request, error)
         }
@@ -183,7 +318,9 @@ class MainActivity : Activity() {
             errorResponse: WebResourceResponse,
         ) {
             if (request.isForMainFrame && errorResponse.statusCode >= 500) {
-                showOfflineScreen()
+                mainFrameLoadFailed = true
+                hideLoadingScreen()
+                showOfflineScreen(request.url.toString())
             }
             super.onReceivedHttpError(view, request, errorResponse)
         }
@@ -357,6 +494,18 @@ class MainActivity : Activity() {
         webView.saveState(outState)
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            hideSystemUi()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hideSystemUi()
+    }
+
     override fun onPause() {
         super.onPause()
         CookieManager.getInstance().flush()
@@ -369,6 +518,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val SPLASH_TITLE = "Direct Loop PDA"
         private const val FILE_CHOOSER_REQUEST_CODE = 1001
         private const val CAMERA_PERMISSION_REQUEST_CODE = 1002
         private const val WEB_CAMERA_PERMISSION_REQUEST_CODE = 1003
