@@ -138,6 +138,9 @@ class MainActivity : Activity() {
     private fun configureWebView() {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 
+        webView.isFocusable = true
+        webView.isFocusableInTouchMode = true
+
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -272,6 +275,13 @@ class MainActivity : Activity() {
         webView.loadUrl(lastFailedUrl.ifBlank { BuildConfig.FW_ERP_APP_URL })
     }
 
+    private fun focusScannerInput(view: WebView) {
+        view.post {
+            view.requestFocus()
+            view.evaluateJavascript(SCANNER_INPUT_FOCUS_SCRIPT, null)
+        }
+    }
+
     private inner class DirectLoopWebViewClient : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
@@ -301,6 +311,9 @@ class MainActivity : Activity() {
                 hideLoadingScreen()
             }
             super.onPageFinished(view, url)
+            if (!mainFrameLoadFailed) {
+                focusScannerInput(view)
+            }
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -519,6 +532,99 @@ class MainActivity : Activity() {
 
     companion object {
         private const val SPLASH_TITLE = "Direct Loop PDA"
+        private const val SCANNER_INPUT_FOCUS_SCRIPT = """
+(function () {
+  function isVisible(element) {
+    var rect = element.getBoundingClientRect();
+    var style = window.getComputedStyle(element);
+    return rect.width > 0 &&
+      rect.height > 0 &&
+      style.display !== 'none' &&
+      style.visibility !== 'hidden';
+  }
+
+  function isTextInput(element) {
+    if (!element) return false;
+    var tag = (element.tagName || '').toLowerCase();
+    if (tag === 'textarea') return true;
+    if (tag !== 'input') return false;
+
+    var type = ((element.getAttribute('type') || 'text') + '').toLowerCase();
+    return type === 'text' ||
+      type === "search" ||
+      type === 'tel' ||
+      type === 'url' ||
+      type === 'email' ||
+      type === 'number' ||
+      type === 'password';
+  }
+
+  function isUsableInput(element) {
+    return isTextInput(element) &&
+      !element.disabled &&
+      !element.readOnly &&
+      isVisible(element);
+  }
+
+  function textFor(element) {
+    return [
+      element.id,
+      element.name,
+      element.placeholder,
+      element.getAttribute('aria-label'),
+      element.getAttribute('data-testid'),
+      element.className
+    ].join(' ').toLowerCase();
+  }
+
+  function hasExplicitScanMarker(element) {
+    return element.getAttribute('data-scan-input') === 'true';
+  }
+
+  function scoreInput(element) {
+    if (!isUsableInput(element)) return 0;
+    if (hasExplicitScanMarker(element)) return 1000;
+
+    var type = ((element.getAttribute('type') || '') + '').toLowerCase();
+    var text = textFor(element);
+    if (text.indexOf('barcode') !== -1) return 800;
+    if (text.indexOf('machine_code') !== -1 ||
+        text.indexOf('machine-code') !== -1 ||
+        text.indexOf('machine code') !== -1) return 700;
+    if (text.indexOf('scan') !== -1 ||
+        text.indexOf('scanner') !== -1) return 600;
+    if (type === "search" || text.indexOf('search') !== -1) return 100;
+    return 0;
+  }
+
+  function focusCandidate() {
+    var inputs = Array.prototype.slice.call(document.querySelectorAll('input, textarea'));
+    var best = null;
+    var bestScore = 0;
+    inputs.forEach(function (input) {
+      var score = scoreInput(input);
+      if (score > bestScore) {
+        best = input;
+        bestScore = score;
+      }
+    });
+
+    var activeScore = scoreInput(document.activeElement);
+    if (isUsableInput(document.activeElement) && activeScore >= bestScore) return;
+
+    if (!best) return;
+    try {
+      best.focus({ preventScroll: true });
+    } catch (error) {
+      best.focus();
+    }
+  }
+
+  focusCandidate();
+  window.setTimeout(focusCandidate, 300);
+  window.setTimeout(focusCandidate, 1000);
+})();
+"""
         private const val FILE_CHOOSER_REQUEST_CODE = 1001
         private const val CAMERA_PERMISSION_REQUEST_CODE = 1002
         private const val WEB_CAMERA_PERMISSION_REQUEST_CODE = 1003

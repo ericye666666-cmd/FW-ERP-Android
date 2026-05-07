@@ -39,6 +39,35 @@ should update those BuildConfig values instead of changing app logic.
 - Provides a network/offline error view with a retry button.
 - Requests camera permission only for WebView camera/file chooser use.
 - Supports WebView file chooser with image selection and camera capture.
+- PDA scanner input mode: after each WebView page load, the shell asks the page
+  to focus the most likely scan input when no FW-ERP text input is already
+  focused on an equal-or-higher-priority input. Candidate inputs are matched
+  first by `data-scan-input="true"`, then by `barcode`, `machine_code`, or
+  `scan` metadata, and only then by search input metadata.
+- Hardware Enter from a PDA scan head or Bluetooth scanner is left to the
+  focused FW-ERP input, so existing web submit/search behavior still owns the
+  action.
+
+## PDA scanner input mode
+
+Direct Loop PDA v0.1 treats scanner hardware as keyboard input. The supported
+devices for this mode are:
+
+- PDA scan heads that type the barcode into the currently focused input and send
+  Enter.
+- Bluetooth scanners configured as keyboard/HID devices that type the barcode
+  into the currently focused input and send Enter.
+
+The Android shell does not add native scanner SDK handling. No native scanner SDK
+or CameraX flow is used for scanning in this PR. FW-ERP pages remain responsible
+for validation, submit, routing, and any barcode-specific business behavior.
+
+The shell injects a lightweight focus helper after a page finishes loading and
+after the WebView loading/offline handling has run. The helper only attempts to
+focus visible, editable text inputs that look like scan targets by explicit
+`data-scan-input="true"` marker, `id`, `name`, placeholder, ARIA label, test id,
+class, or input type. A generic search input is only the last fallback, so it is
+not chosen over a real scan input.
 
 ## Non-goals
 
@@ -47,6 +76,8 @@ should update those BuildConfig values instead of changing app logic.
 - No duplicate Android API clients.
 - No Bluetooth permission flow, socket connection, device discovery, or TSPL sending.
 - No backend code.
+- No Zebra SDK, Honeywell SDK, Urovo SDK, CameraX scanner flow, POS logic,
+  printing, or offline queue.
 - No hardcoded secrets.
 - No APK/build outputs committed.
 
@@ -90,3 +121,14 @@ bash scripts/validate_webview_shell.sh
 ```
 
 If Android SDK and Gradle are installed, also run a normal Android build from Android Studio or Gradle.
+
+Manual PDA scanner-mode test:
+
+1. Install or run the app on a PDA/WebView device.
+2. Open an FW-ERP `/app/` page that has `data-scan-input="true"`, `barcode`,
+   `machine_code`, `scan`, or search input metadata.
+3. Confirm the cursor lands in the expected scan input after the page loads, or
+   that FW-ERP's own already focused text input remains focused.
+4. Scan with a PDA scan head or Bluetooth keyboard-mode scanner.
+5. Confirm the barcode text appears in the focused web input and hardware Enter
+   triggers the existing FW-ERP web submit/search behavior.
