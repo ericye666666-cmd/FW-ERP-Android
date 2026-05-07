@@ -21,6 +21,8 @@ should update those BuildConfig values instead of changing app logic.
 - Android does not duplicate ERP business logic.
 - Android does not call FW-ERP APIs directly yet.
 - Native scanner, Bluetooth printing, and offline queue will be separate future PRs.
+- Bluetooth printing is currently architecture planning only; see
+  [docs/bluetooth-printing-plan.md](docs/bluetooth-printing-plan.md).
 
 ## Current behavior
 
@@ -43,9 +45,29 @@ should update those BuildConfig values instead of changing app logic.
 - No native rebuild of #195 screens.
 - No copied FW-ERP frontend files.
 - No duplicate Android API clients.
+- No Bluetooth permission flow, socket connection, device discovery, or TSPL sending.
 - No backend code.
 - No hardcoded secrets.
 - No APK/build outputs committed.
+
+## Bluetooth Printing Roadmap
+
+Future Android Bluetooth printing will keep FW-ERP backend/web as the source of
+truth for print jobs and barcode payloads. Android may later connect directly to
+Deli DL-720C label printers for `60x40` and `40x30` labels, but it must only
+transport print payloads created by FW-ERP.
+
+Planned future module boundaries are documented in
+[docs/bluetooth-printing-plan.md](docs/bluetooth-printing-plan.md):
+
+- `PrinterDiscovery`
+- `PrinterConnection`
+- `TsplPrinterClient`
+- `PrintJobSync`
+- `PrintResultReporter`
+
+Bluetooth printing must not change barcode rules, `STORE_ITEM`, POS guardrails,
+or WebView shell behavior. Android must not regenerate business barcodes.
 
 ## Build
 
