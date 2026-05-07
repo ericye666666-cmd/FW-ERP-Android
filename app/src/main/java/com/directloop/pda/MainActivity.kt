@@ -68,7 +68,7 @@ class MainActivity : Activity() {
         configureWebView()
 
         if (savedInstanceState == null) {
-            webView.loadUrl(PRODUCTION_APP_URL)
+            webView.loadUrl(BuildConfig.FW_ERP_APP_URL)
         } else {
             webView.restoreState(savedInstanceState)
         }
@@ -155,7 +155,7 @@ class MainActivity : Activity() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
             if (uri.scheme == "http" || uri.scheme == "https") {
-                if (uri.host == PRODUCTION_HOST) {
+                if (uri.host == BuildConfig.FW_ERP_HOST) {
                     return false
                 }
                 openExternalUrl(uri)
@@ -332,7 +332,7 @@ class MainActivity : Activity() {
     }
 
     private fun isTrustedOrigin(origin: Uri): Boolean {
-        return origin.scheme == "https" && origin.host == PRODUCTION_HOST
+        return origin.scheme == "https" && origin.host == BuildConfig.FW_ERP_HOST
     }
 
     private fun openExternalUrl(uri: Uri) {
@@ -369,8 +369,6 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val PRODUCTION_APP_URL = "https://fw-erp-34-35-52-250.nip.io/app/"
-        private const val PRODUCTION_HOST = "fw-erp-34-35-52-250.nip.io"
         private const val FILE_CHOOSER_REQUEST_CODE = 1001
         private const val CAMERA_PERMISSION_REQUEST_CODE = 1002
         private const val WEB_CAMERA_PERMISSION_REQUEST_CODE = 1003

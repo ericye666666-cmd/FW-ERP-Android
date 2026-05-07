@@ -18,7 +18,20 @@ grep -q 'android:label="@string/app_name"' "$MANIFEST"
 grep -q 'android:screenOrientation="portrait"' "$MANIFEST"
 grep -q 'android.permission.INTERNET' "$MANIFEST"
 grep -q 'android.permission.CAMERA' "$MANIFEST"
-grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$MAIN_ACTIVITY"
+grep -q 'FW_ERP_APP_URL' "$APP_GRADLE"
+grep -q 'FW_ERP_HOST' "$APP_GRADLE"
+grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$APP_GRADLE"
+grep -q 'fw-erp-34-35-52-250.nip.io' "$APP_GRADLE"
+grep -q 'BuildConfig.FW_ERP_APP_URL' "$MAIN_ACTIVITY"
+grep -q 'BuildConfig.FW_ERP_HOST' "$MAIN_ACTIVITY"
+if grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$MAIN_ACTIVITY"; then
+  echo "MainActivity must read the FW-ERP URL from BuildConfig, not a hardcoded string." >&2
+  exit 1
+fi
+if grep -q 'private const val PRODUCTION_APP_URL\\|private const val PRODUCTION_HOST' "$MAIN_ACTIVITY"; then
+  echo "MainActivity must not keep old hardcoded production endpoint constants." >&2
+  exit 1
+fi
 grep -q 'javaScriptEnabled = true' "$MAIN_ACTIVITY"
 grep -q 'domStorageEnabled = true' "$MAIN_ACTIVITY"
 grep -q 'CookieManager.getInstance()' "$MAIN_ACTIVITY"

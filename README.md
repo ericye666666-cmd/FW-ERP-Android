@@ -8,6 +8,10 @@ The Android app loads the existing FW-ERP `/app/`:
 https://fw-erp-34-35-52-250.nip.io/app/
 ```
 
+The FW-ERP endpoint URL and host are configured through Android `BuildConfig`
+fields in `app/build.gradle.kts`. Future production or staging domain changes
+should update those BuildConfig values instead of changing app logic.
+
 ## Scope
 
 - This Android app is a WebView shell.
