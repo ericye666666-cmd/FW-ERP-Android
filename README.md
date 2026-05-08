@@ -112,6 +112,30 @@ com.directloop.pda
 
 Local files such as `local.properties`, `.gradle/`, `build/`, APKs, and AABs are ignored and should not be committed.
 
+## Download Debug APK from GitHub Actions
+
+The debug APK is for internal staging PDA testing. It still loads the configured
+FW-ERP staging app:
+
+```text
+https://fw-erp-34-35-52-250.nip.io/app/
+```
+
+Non-developer install steps:
+
+1. Open the GitHub repository for `FW-ERP-Android`.
+2. Click the `Actions` tab.
+3. Open the latest `Build Debug APK` run.
+4. Download the `direct-loop-pda-debug-apk` artifact.
+5. Unzip the download if GitHub saves it as a `.zip` file.
+6. Find `direct-loop-pda-debug.apk`.
+7. Transfer the APK to the PDA or Android phone.
+8. Install the APK on the device.
+9. If Android blocks installation, allow install from unknown sources for the
+   app you used to open the APK.
+10. Open `Direct Loop PDA`.
+11. Confirm the app loads `https://fw-erp-34-35-52-250.nip.io/app/`.
+
 ## Validation
 
 Run the repository contract check:
@@ -120,7 +144,11 @@ Run the repository contract check:
 bash scripts/validate_webview_shell.sh
 ```
 
-If Android SDK and Gradle are installed, also run a normal Android build from Android Studio or Gradle.
+If Android SDK and Gradle are installed, also run:
+
+```bash
+./gradlew assembleDebug
+```
 
 Manual PDA scanner-mode test:
 
