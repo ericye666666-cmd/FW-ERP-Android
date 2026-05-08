@@ -136,6 +136,39 @@ Non-developer install steps:
 10. Open `Direct Loop PDA`.
 11. Confirm the app loads `https://fw-erp-34-35-52-250.nip.io/app/`.
 
+## Stable internal debug signing
+
+GitHub Actions debug APKs should use one stable internal signing key. Android
+checks the signing certificate when installing an APK over an existing app with
+the same package name, so a differently signed debug APK can be blocked as a
+signature conflict. Stable signing lets internal testers install future
+`direct-loop-pda-debug.apk` artifacts as updates over the previous Direct Loop
+PDA debug APK.
+
+Configure these GitHub repository secrets before relying on update installs:
+
+- `PDA_DEBUG_KEYSTORE_BASE64`: base64-encoded debug keystore file.
+- `PDA_DEBUG_KEYSTORE_PASSWORD`: keystore password.
+- `PDA_DEBUG_KEY_ALIAS`: key alias inside the keystore.
+- `PDA_DEBUG_KEY_PASSWORD`: key password.
+
+Do not commit the `.jks` / `.keystore` file or passwords. Keep the original
+keystore in a secure internal password manager or vault so the same signing key
+can be reused for future GitHub Actions builds.
+
+Rotate the key only when the signing key is lost or compromised. To rotate it:
+
+1. Create a replacement internal debug keystore.
+2. Base64-encode the keystore file.
+3. Replace all four GitHub Secrets together.
+4. Tell testers that Android will treat the rotated-key APK as differently
+   signed.
+
+If a PDA or Android phone already has a differently signed debug APK installed,
+uninstall once, then install the stable-signed APK from GitHub Actions. Future
+APK artifacts signed with the same stable key should update normally without
+uninstalling first.
+
 ## Validation
 
 Run the repository contract check:

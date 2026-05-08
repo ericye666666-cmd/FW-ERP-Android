@@ -39,6 +39,13 @@ grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$APP_GRADLE"
 grep -q 'fw-erp-34-35-52-250.nip.io' "$APP_GRADLE"
 grep -q 'sourceCompatibility = JavaVersion.VERSION_17' "$APP_GRADLE"
 grep -q 'targetCompatibility = JavaVersion.VERSION_17' "$APP_GRADLE"
+grep -q 'PDA_DEBUG_KEYSTORE_PATH' "$APP_GRADLE"
+grep -q 'PDA_DEBUG_KEYSTORE_PASSWORD' "$APP_GRADLE"
+grep -q 'PDA_DEBUG_KEY_ALIAS' "$APP_GRADLE"
+grep -q 'PDA_DEBUG_KEY_PASSWORD' "$APP_GRADLE"
+grep -q 'pdaDebugSigningEnvComplete' "$APP_GRADLE"
+grep -q 'signingConfigs.create("pdaDebug")' "$APP_GRADLE"
+grep -q 'debug.signingConfig = signingConfigs.getByName("pdaDebug")' "$APP_GRADLE"
 if grep -q 'localhost\\|127\\.0\\.0\\.1' "$APP_GRADLE"; then
   echo "Debug APK must keep the configured FW-ERP staging URL, not a local dev URL." >&2
   exit 1
@@ -100,6 +107,13 @@ grep -q 'direct-loop-pda-debug.apk' "$README"
 grep -q 'Unzip' "$README"
 grep -q 'unknown sources' "$README"
 grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$README"
+grep -q 'Stable internal debug signing' "$README"
+grep -q 'PDA_DEBUG_KEYSTORE_BASE64' "$README"
+grep -q 'PDA_DEBUG_KEYSTORE_PASSWORD' "$README"
+grep -q 'PDA_DEBUG_KEY_ALIAS' "$README"
+grep -q 'PDA_DEBUG_KEY_PASSWORD' "$README"
+grep -q 'Rotate the key' "$README"
+grep -q 'uninstall once' "$README"
 
 grep -q 'distributionUrl=' "$WRAPPER_PROPS"
 grep -q 'gradle-' "$WRAPPER_PROPS"
@@ -111,6 +125,14 @@ grep -q './gradlew assembleDebug' "$APK_WORKFLOW"
 grep -q 'actions/upload-artifact' "$APK_WORKFLOW"
 grep -q 'direct-loop-pda-debug-apk' "$APK_WORKFLOW"
 grep -q 'direct-loop-pda-debug.apk' "$APK_WORKFLOW"
+grep -q 'PDA_DEBUG_KEYSTORE_BASE64' "$APK_WORKFLOW"
+grep -q 'secrets.PDA_DEBUG_KEYSTORE_BASE64' "$APK_WORKFLOW"
+grep -q 'secrets.PDA_DEBUG_KEYSTORE_PASSWORD' "$APK_WORKFLOW"
+grep -q 'secrets.PDA_DEBUG_KEY_ALIAS' "$APK_WORKFLOW"
+grep -q 'secrets.PDA_DEBUG_KEY_PASSWORD' "$APK_WORKFLOW"
+grep -q 'RUNNER_TEMP/pda-debug.keystore' "$APK_WORKFLOW"
+grep -q 'base64 --decode' "$APK_WORKFLOW"
+grep -q 'PDA_DEBUG_KEYSTORE_PATH' "$APK_WORKFLOW"
 if grep -q 'localhost\\|127\\.0\\.0\\.1' "$APK_WORKFLOW"; then
   echo "GitHub Actions debug APK build must not point the app at a local dev URL." >&2
   exit 1
@@ -138,6 +160,23 @@ fi
 
 if find "$ROOT_DIR" -path '*/frontend_prototype/*' -o -path '*/backend/*' | grep -q .; then
   echo "Android repo must not copy FW-ERP frontend or backend files." >&2
+  exit 1
+fi
+
+if find "$ROOT_DIR" \
+  \( -path "$ROOT_DIR/.git" -o -path "$ROOT_DIR/.gradle" -o -path "$ROOT_DIR/build" -o -path "$ROOT_DIR/app/build" \) -prune -o \
+  \( -name '*.jks' -o -name '*.keystore' -o -name 'local.properties' -o -name '*.apk' -o -name '*.aab' \) -print | grep -q .; then
+  echo "Repository must not commit keystores, local.properties, APKs, AABs, or build outputs." >&2
+  exit 1
+fi
+
+if grep -R -E 'storePassword\\s*=\\s*\"[^$]|keyPassword\\s*=\\s*\"[^$]|PDA_DEBUG_KEYSTORE_BASE64=.+' "$ROOT_DIR" \
+  --exclude-dir=.git \
+  --exclude-dir=.gradle \
+  --exclude-dir=build \
+  --exclude-dir=app/build \
+  --exclude='validate_webview_shell.sh' >/dev/null 2>&1; then
+  echo "Repository must not commit signing passwords or base64 keystore content." >&2
   exit 1
 fi
 
