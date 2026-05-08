@@ -7,12 +7,20 @@ MANIFEST="$ROOT_DIR/app/src/main/AndroidManifest.xml"
 APP_GRADLE="$ROOT_DIR/app/build.gradle.kts"
 README="$ROOT_DIR/README.md"
 STYLES="$ROOT_DIR/app/src/main/res/values/styles.xml"
+GRADLEW="$ROOT_DIR/gradlew"
+WRAPPER_PROPS="$ROOT_DIR/gradle/wrapper/gradle-wrapper.properties"
+WRAPPER_JAR="$ROOT_DIR/gradle/wrapper/gradle-wrapper.jar"
+APK_WORKFLOW="$ROOT_DIR/.github/workflows/debug-apk.yml"
 
 test -f "$MAIN_ACTIVITY"
 test -f "$MANIFEST"
 test -f "$APP_GRADLE"
 test -f "$README"
 test -f "$STYLES"
+test -x "$GRADLEW"
+test -f "$WRAPPER_PROPS"
+test -f "$WRAPPER_JAR"
+test -f "$APK_WORKFLOW"
 
 grep -q 'kotlin("android")' "$APP_GRADLE"
 grep -q 'applicationId = "com.directloop.pda"' "$APP_GRADLE"
@@ -29,6 +37,12 @@ grep -q 'FW_ERP_APP_URL' "$APP_GRADLE"
 grep -q 'FW_ERP_HOST' "$APP_GRADLE"
 grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$APP_GRADLE"
 grep -q 'fw-erp-34-35-52-250.nip.io' "$APP_GRADLE"
+grep -q 'sourceCompatibility = JavaVersion.VERSION_17' "$APP_GRADLE"
+grep -q 'targetCompatibility = JavaVersion.VERSION_17' "$APP_GRADLE"
+if grep -q 'localhost\\|127\\.0\\.0\\.1' "$APP_GRADLE"; then
+  echo "Debug APK must keep the configured FW-ERP staging URL, not a local dev URL." >&2
+  exit 1
+fi
 grep -q 'BuildConfig.FW_ERP_APP_URL' "$MAIN_ACTIVITY"
 grep -q 'BuildConfig.FW_ERP_HOST' "$MAIN_ACTIVITY"
 if grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$MAIN_ACTIVITY"; then
@@ -79,6 +93,28 @@ grep -q 'Native scanner, Bluetooth printing, and offline queue' "$README"
 grep -q 'PDA scanner input mode' "$README"
 grep -q 'hardware Enter' "$README"
 grep -q 'No native scanner SDK' "$README"
+grep -q 'GitHub repository' "$README"
+grep -q 'Actions' "$README"
+grep -q 'direct-loop-pda-debug-apk' "$README"
+grep -q 'direct-loop-pda-debug.apk' "$README"
+grep -q 'Unzip' "$README"
+grep -q 'unknown sources' "$README"
+grep -q 'https://fw-erp-34-35-52-250.nip.io/app/' "$README"
+
+grep -q 'distributionUrl=' "$WRAPPER_PROPS"
+grep -q 'gradle-' "$WRAPPER_PROPS"
+grep -q 'push:' "$APK_WORKFLOW"
+grep -Fq 'branches: [ main ]' "$APK_WORKFLOW"
+grep -q 'pull_request:' "$APK_WORKFLOW"
+grep -q 'workflow_dispatch:' "$APK_WORKFLOW"
+grep -q './gradlew assembleDebug' "$APK_WORKFLOW"
+grep -q 'actions/upload-artifact' "$APK_WORKFLOW"
+grep -q 'direct-loop-pda-debug-apk' "$APK_WORKFLOW"
+grep -q 'direct-loop-pda-debug.apk' "$APK_WORKFLOW"
+if grep -q 'localhost\\|127\\.0\\.0\\.1' "$APK_WORKFLOW"; then
+  echo "GitHub Actions debug APK build must not point the app at a local dev URL." >&2
+  exit 1
+fi
 
 if grep -q 'KEYCODE_ENTER\|setOnKeyListener\|dispatchKeyEvent' "$MAIN_ACTIVITY"; then
   echo "Android shell must let hardware Enter reach the focused FW-ERP input." >&2
