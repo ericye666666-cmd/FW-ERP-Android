@@ -136,6 +136,28 @@ Non-developer install steps:
 10. Open `Direct Loop PDA`.
 11. Confirm the app loads `https://fw-erp-34-35-52-250.nip.io/app/`.
 
+## PDA login session debug test
+
+Use this check when validating a new internal debug APK on a real PDA:
+
+1. Clear Direct Loop PDA app storage once after installing the new APK.
+2. Open Direct Loop PDA and confirm the API base shown by FW-ERP is the staging
+   API.
+3. Log in as `Austin / demo1234`.
+4. Confirm the app stays in `店员 PDA 工作台` and does not return to the login
+   page.
+5. Close and reopen Direct Loop PDA.
+6. Confirm the session is still present when WebView storage persists, or at
+   minimum that Android did not clear the FW-ERP localStorage keys unexpectedly.
+
+In debug builds, Android Logcat includes a `DirectLoopPDA` storage probe after
+page load. It reports only whether these localStorage keys exist, not their
+values:
+
+- `retail_ops_access_token`
+- `retail_ops_current_user`
+- `retail_ops_api_base`
+
 ## Stable internal debug signing
 
 GitHub Actions debug APKs should use one stable internal signing key. Android
