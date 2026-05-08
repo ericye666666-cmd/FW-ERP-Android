@@ -62,8 +62,17 @@ if grep -q 'private const val PRODUCTION_APP_URL\\|private const val PRODUCTION_
 fi
 grep -q 'javaScriptEnabled = true' "$MAIN_ACTIVITY"
 grep -q 'domStorageEnabled = true' "$MAIN_ACTIVITY"
+grep -q 'databaseEnabled = true' "$MAIN_ACTIVITY"
+grep -q 'cacheMode = WebSettings.LOAD_NO_CACHE' "$MAIN_ACTIVITY"
 grep -q 'CookieManager.getInstance()' "$MAIN_ACTIVITY"
+grep -q 'setAcceptCookie(true)' "$MAIN_ACTIVITY"
+grep -q 'setAcceptThirdPartyCookies(webView, true)' "$MAIN_ACTIVITY"
 grep -q 'CookieManager.getInstance().flush()' "$MAIN_ACTIVITY"
+grep -q 'WEB_SESSION_STORAGE_PROBE_SCRIPT' "$MAIN_ACTIVITY"
+grep -q 'probeWebSessionStorage(view)' "$MAIN_ACTIVITY"
+grep -q 'retail_ops_access_token' "$MAIN_ACTIVITY"
+grep -q 'retail_ops_current_user' "$MAIN_ACTIVITY"
+grep -q 'retail_ops_api_base' "$MAIN_ACTIVITY"
 grep -q 'onShowFileChooser' "$MAIN_ACTIVITY"
 grep -q 'WebView canGoBack' "$MAIN_ACTIVITY"
 grep -q 'offlineContainer' "$MAIN_ACTIVITY"
@@ -114,6 +123,12 @@ grep -q 'PDA_DEBUG_KEY_ALIAS' "$README"
 grep -q 'PDA_DEBUG_KEY_PASSWORD' "$README"
 grep -q 'Rotate the key' "$README"
 grep -q 'uninstall once' "$README"
+grep -q 'Austin / demo1234' "$README"
+grep -q '店员 PDA 工作台' "$README"
+grep -q 'Close and reopen' "$README"
+grep -q 'retail_ops_access_token' "$README"
+grep -q 'retail_ops_current_user' "$README"
+grep -q 'retail_ops_api_base' "$README"
 
 grep -q 'distributionUrl=' "$WRAPPER_PROPS"
 grep -q 'gradle-' "$WRAPPER_PROPS"
@@ -145,6 +160,16 @@ fi
 
 if grep -q 'clearCache\\|clearHistory\\|clearFormData\\|CookieManager.getInstance().remove\\|WebStorage.getInstance().delete' "$MAIN_ACTIVITY"; then
   echo "Android shell must not proactively clear WebView cookies or storage." >&2
+  exit 1
+fi
+
+if sed -n '/override fun onResume/,/^    }/p' "$MAIN_ACTIVITY" | grep -q 'loadUrl\|reload'; then
+  echo "Android shell must not reload FW-ERP during onResume; it can bounce a valid login session." >&2
+  exit 1
+fi
+
+if sed -n '/private fun retryLastUrl/,/^    }/p' "$MAIN_ACTIVITY" | grep -q 'BuildConfig.FW_ERP_APP_URL'; then
+  echo "Retry must target the failed URL, not blindly reload the app root over a valid session." >&2
   exit 1
 fi
 

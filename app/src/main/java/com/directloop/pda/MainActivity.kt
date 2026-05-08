@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -145,7 +146,8 @@ class MainActivity : Activity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            cacheMode = WebSettings.LOAD_DEFAULT
+            // Always revalidate FW-ERP /app assets so PDA WebView does not run stale login JS.
+            cacheMode = WebSettings.LOAD_NO_CACHE
             loadWithOverviewMode = true
             useWideViewPort = true
             mediaPlaybackRequiresUserGesture = false
@@ -163,6 +165,7 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 setAcceptThirdPartyCookies(webView, true)
             }
+            flush()
         }
 
         webView.webViewClient = DirectLoopWebViewClient()
@@ -272,13 +275,26 @@ class MainActivity : Activity() {
     private fun retryLastUrl() {
         hideOfflineScreen()
         showLoadingScreen()
-        webView.loadUrl(lastFailedUrl.ifBlank { BuildConfig.FW_ERP_APP_URL })
+        webView.loadUrl(getRetryUrl())
+    }
+
+    private fun getRetryUrl(): String {
+        return lastFailedUrl.ifBlank { lastRequestedUrl }.ifBlank { BuildConfig.FW_ERP_APP_URL }
     }
 
     private fun focusScannerInput(view: WebView) {
         view.post {
             view.requestFocus()
             view.evaluateJavascript(SCANNER_INPUT_FOCUS_SCRIPT, null)
+        }
+    }
+
+    private fun probeWebSessionStorage(view: WebView) {
+        if (!BuildConfig.DEBUG) {
+            return
+        }
+        view.evaluateJavascript(WEB_SESSION_STORAGE_PROBE_SCRIPT) { result ->
+            Log.d(TAG, "FW-ERP WebView storage probe: $result")
         }
     }
 
@@ -312,6 +328,7 @@ class MainActivity : Activity() {
             }
             super.onPageFinished(view, url)
             if (!mainFrameLoadFailed) {
+                probeWebSessionStorage(view)
                 focusScannerInput(view)
             }
         }
@@ -531,7 +548,31 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val TAG = "DirectLoopPDA"
         private const val SPLASH_TITLE = "Direct Loop PDA"
+        private const val WEB_SESSION_STORAGE_PROBE_SCRIPT = """
+(function () {
+  try {
+    var storage = window.localStorage;
+    var probeKey = '__direct_loop_pda_storage_probe';
+    storage.setItem(probeKey, '1');
+    var available = storage.getItem(probeKey) === '1';
+    storage.removeItem(probeKey);
+
+    return JSON.stringify({
+      localStorage: available,
+      retail_ops_access_token: !!storage.getItem('retail_ops_access_token'),
+      retail_ops_current_user: !!storage.getItem('retail_ops_current_user'),
+      retail_ops_api_base: !!storage.getItem('retail_ops_api_base')
+    });
+  } catch (error) {
+    return JSON.stringify({
+      localStorage: false,
+      error: String(error && error.message ? error.message : error)
+    });
+  }
+})();
+"""
         private const val SCANNER_INPUT_FOCUS_SCRIPT = """
 (function () {
   function isVisible(element) {
