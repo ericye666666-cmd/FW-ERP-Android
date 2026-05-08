@@ -3,6 +3,19 @@ plugins {
     kotlin("android")
 }
 
+fun signingEnv(name: String): String? = System.getenv(name)?.takeIf { it.isNotBlank() }
+
+val pdaDebugKeystorePath = signingEnv("PDA_DEBUG_KEYSTORE_PATH")
+val pdaDebugKeystorePassword = signingEnv("PDA_DEBUG_KEYSTORE_PASSWORD")
+val pdaDebugKeyAlias = signingEnv("PDA_DEBUG_KEY_ALIAS")
+val pdaDebugKeyPassword = signingEnv("PDA_DEBUG_KEY_PASSWORD")
+val pdaDebugSigningEnvComplete = listOf(
+    pdaDebugKeystorePath,
+    pdaDebugKeystorePassword,
+    pdaDebugKeyAlias,
+    pdaDebugKeyPassword,
+).all { it != null }
+
 android {
     namespace = "com.directloop.pda"
     compileSdk = 35
@@ -29,6 +42,22 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    if (pdaDebugSigningEnvComplete) {
+        signingConfigs.create("pdaDebug") {
+            storeFile = file(pdaDebugKeystorePath!!)
+            storePassword = pdaDebugKeystorePassword
+            keyAlias = pdaDebugKeyAlias
+            keyPassword = pdaDebugKeyPassword
+        }
+    }
+
+    buildTypes {
+        val debug = getByName("debug")
+        if (pdaDebugSigningEnvComplete) {
+            debug.signingConfig = signingConfigs.getByName("pdaDebug")
+        }
     }
 
     buildFeatures {
