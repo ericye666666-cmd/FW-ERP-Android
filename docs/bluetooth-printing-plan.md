@@ -1,34 +1,90 @@
 # Bluetooth Printing Architecture Plan
 
-This document defines the future Android Bluetooth printing boundary for FW-ERP
-PDA. It is an architecture plan only. This PR does not implement Bluetooth
-permissions, device discovery, socket connections, TSPL sending, or FW-ERP API
-clients.
+This document defines the Android Bluetooth printing boundary for FW-ERP PDA.
+The first implementation step is a native diagnostic bridge for paired printer
+connection testing only. It does not implement STORE_ITEM production printing,
+FW-ERP API clients, backend status writeback, or web print-job completion.
 
 ## Current State
 
 The Android app is a WebView shell. FW-ERP `/app/` owns the UI, business rules,
 barcode rules, and print job creation.
 
-Current printing flow:
+Current production printing flow:
 
 1. The operator uses FW-ERP inside the Android WebView.
 2. FW-ERP creates the print job and print payload.
 3. Android does not generate business barcodes.
 4. Android does not call FW-ERP APIs directly.
-5. Android does not connect to a label printer.
+5. Android does not mark any web print job as printed.
 
 The current shell must continue to treat FW-ERP backend/web as the source of
 truth for print payloads and barcode values.
 
+## Diagnostic Bridge
+
+The Clerk PDA diagnostic bridge is exposed to trusted FW-ERP WebView pages as:
+
+```text
+window.DirectLoopPdaPrinter
+```
+
+The web UI placement is:
+
+```text
+Clerk PDA -> 我的 -> 蓝牙打印机测试
+```
+
+Supported methods:
+
+- `getPrinterStatus()`
+- `listPairedPrinters()`
+- `connectPrinter(configOrAddress)`
+- `disconnectPrinter()`
+- `printTestLabel(protocol)`
+- `getLastPrintResult()`
+
+`connectPrinter` accepts a paired Bluetooth MAC address string or a JSON string
+with:
+
+```json
+{
+  "profile": "CHITENG_S1",
+  "address": "00:11:22:33:44:55",
+  "name": "Chiteng S1"
+}
+```
+
+Supported profiles:
+
+- `CHITENG_S1`
+- `UROVO`
+- `GENERIC`
+
+Supported diagnostic protocols:
+
+- `TSPL`
+- `CPCL`
+- `ESC_POS`
+
+Each test label includes `DIRECT LOOP`, `PRINTER TEST`,
+`MODEL: <selected profile>`, `TEST123456`, and a timestamp. The diagnostic
+bridge uses Bluetooth Classic SPP first with UUID
+`00001101-0000-1000-8000-00805F9B34FB`.
+
+Trusted-host rule:
+
+- Bridge methods only operate when the WebView is on configured `FW_ERP_HOST`.
+- Untrusted pages receive a rejected JSON status.
+- External URLs are still opened outside the PDA shell.
+
 ## Future Direction
 
-Future Android work may add direct Bluetooth printing for label printers such
-as:
+Future Android work may add production Bluetooth printing after the diagnostic
+bridge confirms which protocol works for Chiteng S1 and Urovo Bluetooth label
+printers.
 
-- Deli DL-720C
-
-Expected label sizes:
+Expected production label sizes:
 
 - 60x40
 - 40x30
@@ -47,24 +103,24 @@ business barcode generator.
 
 ### PrinterDiscovery
 
-Responsible for locating candidate Bluetooth printers when a future permission
-and discovery flow exists.
+Responsible for locating candidate Bluetooth printers when a future discovery
+flow exists. The current diagnostic bridge lists paired devices only; operators
+pair Chiteng S1 and Urovo printers in Android Bluetooth settings first.
 
 Responsibilities:
 
 - List supported paired or discoverable printers.
-- Identify the target device class for Deli DL-720C style label printers.
+- Identify paired label-printer devices and their selected profile.
 - Return device metadata needed by the connection layer.
 
-Out of scope for this PR:
+Out of scope for the diagnostic bridge:
 
-- Android Bluetooth permission flow.
 - Device discovery implementation.
 - User-facing pairing UI.
 
 ### PrinterConnection
 
-Responsible for managing a future Bluetooth printer session.
+Responsible for managing the Bluetooth printer session.
 
 Responsibilities:
 
@@ -72,28 +128,27 @@ Responsibilities:
 - Expose connection state to the print client.
 - Surface connection errors in a reportable form.
 
-Out of scope for this PR:
+Out of scope for the diagnostic bridge:
 
-- Bluetooth socket implementation.
 - Reconnect policy.
-- Low-level byte stream handling.
+- Production retry policy.
 
-### TsplPrinterClient
+### Protocol Test Clients
 
-Responsible for sending backend/web-provided TSPL payloads to the connected
-printer.
+Responsible for sending diagnostic TSPL, CPCL, and ESC/POS test labels to the
+connected printer.
 
 Responsibilities:
 
-- Accept a print payload prepared by FW-ERP backend/web.
-- Send the payload through `PrinterConnection`.
-- Keep label-size handling aligned to backend/web payload metadata.
+- Build a small diagnostic label.
+- Send it through `PrinterConnection`.
+- Record the last tested protocol and result.
 
-Out of scope for this PR:
+Out of scope for the diagnostic bridge:
 
-- TSPL command generation.
-- TSPL byte sending.
 - Barcode rendering or barcode value generation.
+- STORE_ITEM payload generation.
+- Web print-job status changes.
 
 ### PrintJobSync
 
@@ -150,10 +205,10 @@ business barcode identity.
 
 This plan does not implement:
 
-- Bluetooth permission flow.
-- Bluetooth socket connection.
-- Device discovery.
-- TSPL sending.
+- STORE_ITEM production batch printing.
+- Marking any web print job as printed.
+- FW-ERP backend status writeback from Android.
+- Device discovery UI.
 - FW-ERP API client.
 - Local barcode generation.
 - Changes to WebView shell behavior.
@@ -161,10 +216,15 @@ This plan does not implement:
 
 ## PR Boundary
 
-This PR is documentation only. The intended review surface is:
+The diagnostic bridge PR review surface is:
 
-- `docs/bluetooth-printing-plan.md`
+- `app/src/main/AndroidManifest.xml`
+- `app/src/main/java/com/directloop/pda/MainActivity.kt`
+- `app/src/main/java/com/directloop/pda/DirectLoopPdaPrinterBridge.kt`
+- `app/src/main/java/com/directloop/pda/BluetoothPrinterTestPayloads.kt`
 - `README.md`
+- `docs/bluetooth-printing-plan.md`
+- `scripts/validate_webview_shell.sh`
 
-Implementation PRs should be split later by module and should keep the
+Production printing PRs should be split later by module and must keep the
 backend/web print payload as the source of truth.

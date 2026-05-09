@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private lateinit var loadingContainer: LinearLayout
     private lateinit var offlineContainer: LinearLayout
     private lateinit var currentUrlText: TextView
+    private lateinit var pdaPrinterBridge: DirectLoopPdaPrinterBridge
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraUri: Uri? = null
@@ -54,6 +55,9 @@ class MainActivity : Activity() {
     private var lastPauseAt: Long = 0L
     private var lastFreshLoadAt: Long = 0L
     private var hasFinishedInitialLoad = false
+    @Volatile
+    private var printerBridgeTrustedPage = false
+    private var printerBridgeAttached = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -166,6 +170,8 @@ class MainActivity : Activity() {
             flush()
         }
 
+        pdaPrinterBridge = DirectLoopPdaPrinterBridge(this) { printerBridgeTrustedPage }
+        syncPrinterBridgeTrustedPage(BuildConfig.FW_ERP_APP_URL)
         webView.webViewClient = DirectLoopWebViewClient()
         webView.webChromeClient = DirectLoopWebChromeClient()
     }
@@ -313,6 +319,27 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun syncPrinterBridgeTrustedPage(url: String?) {
+        printerBridgeTrustedPage = isTrustedWebUrl(url)
+        if (printerBridgeTrustedPage) {
+            attachPrinterBridge()
+        } else {
+            detachPrinterBridge()
+        }
+    }
+
+    private fun attachPrinterBridge() {
+        if (printerBridgeAttached) return
+        webView.addJavascriptInterface(pdaPrinterBridge, PRINTER_BRIDGE_NAME)
+        printerBridgeAttached = true
+    }
+
+    private fun detachPrinterBridge() {
+        if (!printerBridgeAttached) return
+        webView.removeJavascriptInterface(PRINTER_BRIDGE_NAME)
+        printerBridgeAttached = false
+    }
+
     private inner class DirectLoopWebViewClient : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
@@ -329,6 +356,7 @@ class MainActivity : Activity() {
 
         override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
             lastRequestedUrl = url
+            syncPrinterBridgeTrustedPage(url)
             mainFrameLoadFailed = false
             hideOfflineScreen()
             showLoadingScreen()
@@ -337,6 +365,7 @@ class MainActivity : Activity() {
 
         override fun onPageFinished(view: WebView, url: String) {
             hasFinishedInitialLoad = true
+            syncPrinterBridgeTrustedPage(url)
             CookieManager.getInstance().flush()
             if (!mainFrameLoadFailed) {
                 hideOfflineScreen()
@@ -515,7 +544,20 @@ class MainActivity : Activity() {
     }
 
     private fun isTrustedOrigin(origin: Uri): Boolean {
-        return origin.scheme == "https" && origin.host == BuildConfig.FW_ERP_HOST
+        return isTrustedWebUri(origin)
+    }
+
+    private fun isTrustedWebUrl(url: String?): Boolean {
+        val uri = try {
+            Uri.parse(url ?: return false)
+        } catch (_: Exception) {
+            return false
+        }
+        return isTrustedWebUri(uri)
+    }
+
+    private fun isTrustedWebUri(uri: Uri): Boolean {
+        return uri.scheme == "https" && uri.host == BuildConfig.FW_ERP_HOST
     }
 
     private fun openExternalUrl(uri: Uri) {
@@ -576,6 +618,7 @@ class MainActivity : Activity() {
     companion object {
         private const val TAG = "DirectLoopPDA"
         private const val SPLASH_TITLE = "Direct Loop PDA"
+        private const val PRINTER_BRIDGE_NAME = "DirectLoopPdaPrinter"
         private const val FRESH_LOAD_INTERVAL_MS = 5000L
         private const val WEB_SESSION_STORAGE_PROBE_SCRIPT = """
 (function () {

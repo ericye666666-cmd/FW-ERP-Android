@@ -20,8 +20,10 @@ should update those BuildConfig values instead of changing app logic.
 - Data remains in the FW-ERP backend.
 - Android does not duplicate ERP business logic.
 - Android does not call FW-ERP APIs directly yet.
-- Native scanner, Bluetooth printing, and offline queue will be separate future PRs.
-- Bluetooth printing is currently architecture planning only; see
+- Native scanner and offline queue will be separate future PRs.
+- Bluetooth printer production printing remains future work; this app only has a
+  Clerk PDA diagnostic bridge for paired-printer connection and test labels.
+- Bluetooth printing architecture notes are in
   [docs/bluetooth-printing-plan.md](docs/bluetooth-printing-plan.md).
 
 ## Current behavior
@@ -47,6 +49,75 @@ should update those BuildConfig values instead of changing app logic.
 - Hardware Enter from a PDA scan head or Bluetooth scanner is left to the
   focused FW-ERP input, so existing web submit/search behavior still owns the
   action.
+
+## Bluetooth printer diagnostic bridge
+
+Clerk PDA will expose this native diagnostic surface in the FW-ERP web UI under
+`Clerk PDA -> 我的 -> 蓝牙打印机测试`.
+
+The Android WebView provides:
+
+```text
+window.DirectLoopPdaPrinter
+```
+
+The bridge is only allowed while the loaded WebView page is on the configured
+`FW_ERP_HOST`. External websites are opened outside the shell and bridge calls
+from an untrusted page return a rejected status instead of touching Bluetooth.
+
+Supported bridge methods:
+
+- `getPrinterStatus()`
+- `listPairedPrinters()`
+- `connectPrinter(configOrAddress)`
+- `disconnectPrinter()`
+- `printTestLabel(protocol)`
+- `getLastPrintResult()`
+
+`connectPrinter` accepts either a paired Bluetooth MAC address string or a JSON
+string with the selected test profile:
+
+```json
+{
+  "profile": "CHITENG_S1",
+  "address": "00:11:22:33:44:55",
+  "name": "Chiteng S1"
+}
+```
+
+Supported profiles:
+
+- `CHITENG_S1`
+- `UROVO`
+- `GENERIC`
+
+Supported test protocols:
+
+- `TSPL`
+- `CPCL`
+- `ESC_POS`
+
+Each protocol prints a small diagnostic label containing `DIRECT LOOP`,
+`PRINTER TEST`, `MODEL: <selected profile>`, `TEST123456`, and a timestamp.
+This does not read, update, or mark any FW-ERP web print job as printed.
+
+Bridge status responses include:
+
+```json
+{
+  "bridge_available": true,
+  "bluetooth_enabled": true,
+  "paired_printer_count": 0,
+  "paired_printers": [],
+  "selected_printer_name": "",
+  "selected_printer_address": "",
+  "selected_profile": "GENERIC",
+  "connection_status": "disconnected",
+  "last_error": "",
+  "last_protocol_tested": "",
+  "last_print_result": "none"
+}
+```
 
 ## PDA scanner input mode
 
@@ -74,31 +145,41 @@ not chosen over a real scan input.
 - No native rebuild of #195 screens.
 - No copied FW-ERP frontend files.
 - No duplicate Android API clients.
-- No Bluetooth permission flow, socket connection, device discovery, or TSPL sending.
+- No STORE_ITEM production batch printing.
+- No marking web print jobs as printed.
+- No FW-ERP backend status writeback from Android.
+- No Bluetooth discovery UI; pair Chiteng S1 and Urovo printers in Android
+  Bluetooth settings first.
 - No backend code.
 - No Zebra SDK, Honeywell SDK, Urovo SDK, CameraX scanner flow, POS logic,
-  printing, or offline queue.
+  production printing, or offline queue.
 - No hardcoded secrets.
 - No APK/build outputs committed.
 
 ## Bluetooth Printing Roadmap
 
-Future Android Bluetooth printing will keep FW-ERP backend/web as the source of
-truth for print jobs and barcode payloads. Android may later connect directly to
-Deli DL-720C label printers for `60x40` and `40x30` labels, but it must only
-transport print payloads created by FW-ERP.
+The current Bluetooth implementation is a Clerk PDA diagnostic bridge for paired
+printer connection and protocol testing. It targets Chiteng S1, Urovo Bluetooth
+label printers, and a generic SPP profile. It uses Bluetooth Classic SPP with
+UUID `00001101-0000-1000-8000-00805F9B34FB`.
+
+Future Android Bluetooth production printing will keep FW-ERP backend/web as
+the source of truth for print jobs and barcode payloads. Android may later
+transport FW-ERP-created `60x40` and `40x30` payloads to a paired label printer,
+but it must not generate business barcodes locally.
 
 Planned future module boundaries are documented in
 [docs/bluetooth-printing-plan.md](docs/bluetooth-printing-plan.md):
 
-- `PrinterDiscovery`
+- `PrinterDiscovery` or paired-device selection
 - `PrinterConnection`
-- `TsplPrinterClient`
+- protocol-specific print clients
 - `PrintJobSync`
 - `PrintResultReporter`
 
-Bluetooth printing must not change barcode rules, `STORE_ITEM`, POS guardrails,
-or WebView shell behavior. Android must not regenerate business barcodes.
+Bluetooth diagnostics and future production printing must not change barcode
+rules, `STORE_ITEM`, POS guardrails, or WebView shell behavior. Android must not
+regenerate business barcodes.
 
 ## Build
 
@@ -215,3 +296,14 @@ Manual PDA scanner-mode test:
 4. Scan with a PDA scan head or Bluetooth keyboard-mode scanner.
 5. Confirm the barcode text appears in the focused web input and hardware Enter
    triggers the existing FW-ERP web submit/search behavior.
+
+Manual Bluetooth printer diagnostic test:
+
+1. Pair Chiteng S1 in Android Bluetooth settings.
+2. Pair the Urovo Bluetooth printer in Android Bluetooth settings.
+3. Open `Direct Loop PDA`.
+4. In FW-ERP, open `Clerk PDA -> 我的 -> 蓝牙打印机测试`.
+5. Confirm `listPairedPrinters()` returns both paired devices.
+6. Select `CHITENG_S1`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
+7. Select `UROVO`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
+8. Record which protocol prints correctly for each model.
