@@ -99,6 +99,7 @@ string with the selected test profile:
 Supported profiles:
 
 - `CHITENG_S1`
+- `CHITENG_S1_OFFICIAL`
 - `UROVO`
 - `GENERIC`
 
@@ -114,11 +115,18 @@ Supported test protocols:
 - `CPCL_SIMPLE_TEXT`
 - `ESC_POS`
 - `ESC_POS_TEXT`
+- `CHITENG_S1_OFFICIAL`
 
 The original `TSPL`, `CPCL`, and `ESC_POS` labels include `DIRECT LOOP`,
 `PRINTER TEST`, `MODEL: <selected profile>`, `TEST123456`, and a timestamp.
 The Chiteng S1 variants intentionally use simpler payloads for diagnosis. This
 does not read, update, or mark any FW-ERP web print job as printed.
+
+`CHITENG_S1_OFFICIAL` uses the official Chiteng CTPL Android SDK from
+`app/libs/ctaiotCtpl1.1.8.jar` to print one 60x40 diagnostic label with text and
+a Code128 barcode for `TEST123456`. It is still diagnostic-only: Android does
+not generate STORE_ITEM barcodes and does not mark any FW-ERP print job as
+printed.
 
 Chiteng S1 diagnostic note: TSPL feeds paper but prints no content. Because the
 socket write succeeds, the suspected cause is a media/gap/font/payload mismatch.
@@ -332,6 +340,6 @@ Manual Bluetooth printer diagnostic test:
 5. Confirm `listPairedPrinters()` returns paired devices.
 6. Run `startPrinterDiscovery()` and confirm `getDiscoveredPrinters()` includes
    paired printers plus any nearby discovered devices.
-7. Select `CHITENG_S1`, connect, then test `TSPL`, `TSPL_SIMPLE_TEXT`, `TSPL_DENSITY_TEXT`, `TSPL_NO_GAP_CONTINUOUS`, `TSPL_GAP_DETECT`, `RAW_LF_FEED`, `ESC_POS_TEXT`, `CPCL_SIMPLE_TEXT`, `CPCL`, and `ESC_POS`.
+7. Select `CHITENG_S1`, connect, then test `CHITENG_S1_OFFICIAL`, `TSPL`, `TSPL_SIMPLE_TEXT`, `TSPL_DENSITY_TEXT`, `TSPL_NO_GAP_CONTINUOUS`, `TSPL_GAP_DETECT`, `RAW_LF_FEED`, `ESC_POS_TEXT`, `CPCL_SIMPLE_TEXT`, `CPCL`, and `ESC_POS`.
 8. Select `UROVO`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
 9. Record which protocol prints correctly for each model.

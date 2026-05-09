@@ -67,4 +67,5 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation(files("libs/ctaiotCtpl1.1.8.jar"))
 }
