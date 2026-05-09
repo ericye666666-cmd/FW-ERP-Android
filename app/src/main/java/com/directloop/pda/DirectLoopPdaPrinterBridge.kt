@@ -117,7 +117,7 @@ class DirectLoopPdaPrinterBridge(
 
         val testProtocol = BluetoothPrinterTestProtocol.from(protocol)
             ?: return fail(
-                "Unsupported printer test protocol: $protocol. Use TSPL, CPCL, or ESC_POS.",
+                "Unsupported printer test protocol: $protocol. Use ${BluetoothPrinterTestProtocol.supportedNames}.",
                 printAttempt = true,
             ).toString()
 
