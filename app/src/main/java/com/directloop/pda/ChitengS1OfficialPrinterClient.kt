@@ -21,9 +21,12 @@ class ChitengS1OfficialPrinterClient(
     private var initialized = false
     private var connectedAddress = ""
     private var pendingConnectLatch: CountDownLatch? = null
+    private var pendingHealthLatch: CountDownLatch? = null
     private var lastConnectPort = UNKNOWN_CONNECT_CODE
     private var lastConnectReason = UNKNOWN_CONNECT_CODE
     private var lastDataResponse: Map<String, String> = emptyMap()
+    private var lastMessage = ""
+    private var lastError = ""
 
     fun isSdkAvailable(): Boolean {
         return runCatching { CTPL.getInstance() }.isSuccess
@@ -33,14 +36,16 @@ class ChitengS1OfficialPrinterClient(
     fun connect(address: String, name: String): ChitengOfficialPrintResult {
         val printerAddress = address.trim()
         if (printerAddress.isBlank()) {
-            return ChitengOfficialPrintResult.failure("Chiteng official SDK connect requires a Bluetooth printer address.")
+            return failure("Chiteng official SDK connect requires a Bluetooth printer address.")
         }
 
-        val sdk = sdkOrFailure() ?: return ChitengOfficialPrintResult.failure("Chiteng official CTPL SDK is not available.")
+        val sdk = sdkOrFailure() ?: return failure("Chiteng official CTPL SDK is not available.")
         initializeSdk(sdk)
 
         return try {
             if (sdk.isConnected && connectedAddress == printerAddress) {
+                lastMessage = "Chiteng official SDK is already connected."
+                lastError = ""
                 return ChitengOfficialPrintResult.success("Chiteng official SDK is already connected.")
             }
             if (sdk.isConnected && connectedAddress != printerAddress) {
@@ -72,21 +77,21 @@ class ChitengS1OfficialPrinterClient(
             }
 
             if (!callbackReceived && !sdk.isConnected) {
-                return ChitengOfficialPrintResult.failure("Chiteng official SDK connection timed out.")
+                return failure("Chiteng official SDK connection timed out.")
             }
             if (isConnectSuccess(reason) || sdk.isConnected) {
                 connectedAddress = printerAddress
-                ChitengOfficialPrintResult.success("Chiteng official SDK connected.")
+                success("Chiteng official SDK connected.")
             } else {
-                ChitengOfficialPrintResult.failure(connectReasonMessage(reason))
+                failure(connectReasonMessage(reason))
             }
         } catch (error: SecurityException) {
-            ChitengOfficialPrintResult.failure("Bluetooth permission denied while connecting through Chiteng official SDK.")
+            failure("Bluetooth permission denied while connecting through Chiteng official SDK.")
         } catch (error: RuntimeException) {
-            ChitengOfficialPrintResult.failure("Chiteng official SDK connection failed: ${error.message ?: "unknown error"}.")
+            failure("Chiteng official SDK connection failed: ${error.message ?: "unknown error"}.")
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
-            ChitengOfficialPrintResult.failure("Chiteng official SDK connection was interrupted.")
+            failure("Chiteng official SDK connection was interrupted.")
         } finally {
             synchronized(callbackLock) {
                 pendingConnectLatch = null
@@ -102,7 +107,7 @@ class ChitengS1OfficialPrinterClient(
         val connectResult = connect(address, name)
         if (!connectResult.success) return connectResult
 
-        val sdk = sdkOrFailure() ?: return ChitengOfficialPrintResult.failure("Chiteng official CTPL SDK is not available.")
+        val sdk = sdkOrFailure() ?: return failure("Chiteng official CTPL SDK is not available.")
 
         return try {
             sdk.clean()
@@ -131,11 +136,128 @@ class ChitengS1OfficialPrinterClient(
                 .print(1)
                 .execute()
 
-            ChitengOfficialPrintResult.success("Chiteng official SDK diagnostic label was sent.")
+            success("Chiteng official SDK diagnostic label was sent.")
         } catch (error: SecurityException) {
-            ChitengOfficialPrintResult.failure("Bluetooth permission denied while printing through Chiteng official SDK.")
+            failure("Bluetooth permission denied while printing through Chiteng official SDK.")
         } catch (error: RuntimeException) {
-            ChitengOfficialPrintResult.failure("Chiteng official SDK diagnostic print failed: ${error.message ?: "unknown error"}.")
+            failure("Chiteng official SDK diagnostic print failed: ${error.message ?: "unknown error"}.")
+        }
+    }
+
+    @Synchronized
+    fun verifyConnection(address: String): ChitengOfficialHealthResult {
+        val printerAddress = address.trim()
+        val sdk = sdkOrFailure()
+            ?: return healthError(
+                sdkAvailable = false,
+                sdkConnected = false,
+                message = "Chiteng official CTPL SDK is not available.",
+            )
+        initializeSdk(sdk)
+
+        val sdkConnected = sdkConnectionState(sdk)
+        if (printerAddress.isBlank()) {
+            return ChitengOfficialHealthResult(
+                sdkAvailable = true,
+                sdkConnected = sdkConnected,
+                onlineStatus = ONLINE_UNKNOWN,
+                message = "No Chiteng S1 printer is selected.",
+                error = "",
+                rawStatus = emptyMap(),
+            )
+        }
+        if (!sdkConnected) {
+            connectedAddress = ""
+            lastMessage = ""
+            lastError = "Printer is not responding. Turn on the printer and reconnect."
+            return ChitengOfficialHealthResult(
+                sdkAvailable = true,
+                sdkConnected = false,
+                onlineStatus = ONLINE_OFFLINE,
+                message = "",
+                error = lastError,
+                rawStatus = emptyMap(),
+            )
+        }
+
+        val latch = CountDownLatch(1)
+        synchronized(callbackLock) {
+            lastDataResponse = emptyMap()
+            pendingHealthLatch = latch
+        }
+
+        return try {
+            sdk.queryPrintState()
+            sdk.execute()
+
+            val callbackReceived = latch.await(HEALTH_QUERY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            val response = synchronized(callbackLock) {
+                pendingHealthLatch = null
+                lastDataResponse
+            }
+
+            if (!callbackReceived || response.isEmpty()) {
+                runCatching { sdk.disconnect() }
+                connectedAddress = ""
+                return healthError(
+                    sdkAvailable = true,
+                    sdkConnected = false,
+                    onlineStatus = ONLINE_OFFLINE,
+                    message = "Printer is not responding. Turn on the printer and reconnect.",
+                )
+            }
+
+            val printerProblem = printerProblemMessage(response)
+            if (printerProblem != null) {
+                lastMessage = statusSummary(response)
+                lastError = printerProblem
+                ChitengOfficialHealthResult(
+                    sdkAvailable = true,
+                    sdkConnected = sdkConnectionState(sdk),
+                    onlineStatus = ONLINE_ERROR,
+                    message = lastMessage,
+                    error = printerProblem,
+                    rawStatus = response,
+                )
+            } else {
+                lastMessage = statusSummary(response)
+                lastError = ""
+                ChitengOfficialHealthResult(
+                    sdkAvailable = true,
+                    sdkConnected = sdkConnectionState(sdk),
+                    onlineStatus = ONLINE_ONLINE,
+                    message = lastMessage,
+                    error = "",
+                    rawStatus = response,
+                )
+            }
+        } catch (error: SecurityException) {
+            healthError(
+                sdkAvailable = true,
+                sdkConnected = sdkConnectionState(sdk),
+                message = "Bluetooth permission denied while querying Chiteng printer status.",
+            )
+        } catch (error: RuntimeException) {
+            runCatching { sdk.disconnect() }
+            connectedAddress = ""
+            healthError(
+                sdkAvailable = true,
+                sdkConnected = false,
+                onlineStatus = ONLINE_OFFLINE,
+                message = "Printer is not responding. Turn on the printer and reconnect.",
+                rawError = error.message,
+            )
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            healthError(
+                sdkAvailable = true,
+                sdkConnected = sdkConnectionState(sdk),
+                message = "Chiteng printer status query was interrupted.",
+            )
+        } finally {
+            synchronized(callbackLock) {
+                pendingHealthLatch = null
+            }
         }
     }
 
@@ -150,12 +272,23 @@ class ChitengS1OfficialPrinterClient(
             }
         }
         connectedAddress = ""
+        lastMessage = "Chiteng official SDK disconnected."
+        lastError = ""
     }
 
     fun lastStatusSummary(): String {
         val data = synchronized(callbackLock) { lastDataResponse }
         return if (data.isEmpty()) "" else data.entries.joinToString(", ") { "${it.key}=${it.value}" }
     }
+
+    fun isOfficialSdkConnected(): Boolean {
+        val sdk = sdkOrFailure() ?: return false
+        return sdkConnectionState(sdk)
+    }
+
+    fun lastSdkMessage(): String = lastMessage
+
+    fun lastSdkError(): String = lastError
 
     private fun initializeSdk(sdk: CTPL) {
         if (initialized) return
@@ -174,6 +307,7 @@ class ChitengS1OfficialPrinterClient(
                 override fun onDataResponse(result: HashMap<String, String>) {
                     synchronized(callbackLock) {
                         lastDataResponse = result.toMap()
+                        pendingHealthLatch?.countDown()
                     }
                 }
 
@@ -185,6 +319,75 @@ class ChitengS1OfficialPrinterClient(
 
     private fun sdkOrFailure(): CTPL? {
         return runCatching { CTPL.getInstance() }.getOrNull()
+    }
+
+    private fun sdkConnectionState(sdk: CTPL): Boolean {
+        return runCatching { sdk.isConnected }.getOrDefault(false)
+    }
+
+    private fun printerProblemMessage(status: Map<String, String>): String? {
+        val cover = status.valueFor("DeviceCover")
+        if (cover.equals("Open", ignoreCase = true)) return "Printer cover is open."
+
+        val paused = status.valueFor("DevicePause")
+        if (paused.equals("true", ignoreCase = true)) return "Printer is paused."
+
+        val overheated = status.valueFor("DeviceOverHeat")
+        if (overheated.equals("true", ignoreCase = true)) return "Printer is overheated."
+
+        val paperProblem = status.entries.firstOrNull { (key, value) ->
+            val lowerKey = key.lowercase()
+            val lowerValue = value.lowercase()
+            (lowerKey.contains("paper") || lowerValue.contains("paper") || value.contains("缺纸")) &&
+                (lowerValue.contains("out") || lowerValue.contains("false") || value.contains("缺纸"))
+        }
+        if (paperProblem != null) return "Printer paper status is not ready: ${paperProblem.key}=${paperProblem.value}."
+
+        return null
+    }
+
+    private fun statusSummary(status: Map<String, String>): String {
+        return if (status.isEmpty()) {
+            ""
+        } else {
+            status.entries.joinToString(", ") { "${it.key}=${it.value}" }
+        }
+    }
+
+    private fun Map<String, String>.valueFor(key: String): String {
+        return entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value.orEmpty()
+    }
+
+    private fun success(message: String): ChitengOfficialPrintResult {
+        lastMessage = message
+        lastError = ""
+        return ChitengOfficialPrintResult.success(message)
+    }
+
+    private fun failure(message: String): ChitengOfficialPrintResult {
+        lastMessage = ""
+        lastError = message
+        return ChitengOfficialPrintResult.failure(message)
+    }
+
+    private fun healthError(
+        sdkAvailable: Boolean,
+        sdkConnected: Boolean,
+        message: String,
+        onlineStatus: String = ONLINE_ERROR,
+        rawError: String? = null,
+    ): ChitengOfficialHealthResult {
+        val error = if (rawError.isNullOrBlank()) message else "$message ${rawError.trim()}."
+        lastMessage = ""
+        lastError = error
+        return ChitengOfficialHealthResult(
+            sdkAvailable = sdkAvailable,
+            sdkConnected = sdkConnected,
+            onlineStatus = onlineStatus,
+            message = "",
+            error = error,
+            rawStatus = emptyMap(),
+        )
     }
 
     private fun isConnectSuccess(reason: Int): Boolean {
@@ -224,12 +427,26 @@ class ChitengS1OfficialPrinterClient(
         }
     }
 
+    data class ChitengOfficialHealthResult(
+        val sdkAvailable: Boolean,
+        val sdkConnected: Boolean,
+        val onlineStatus: String,
+        val message: String,
+        val error: String,
+        val rawStatus: Map<String, String>,
+    )
+
     companion object {
         private const val TEST_CODE = "TEST123456"
         private const val CONNECT_TIMEOUT_MS = 8000L
+        private const val HEALTH_QUERY_TIMEOUT_MS = 1800L
         private const val UNKNOWN_CONNECT_CODE = -1
         private const val CONNECTED_BLE = 256
         private const val CONNECTED_SPP = 257
         private const val CONNECTED_USB = 258
+        const val ONLINE_ONLINE = "online"
+        const val ONLINE_OFFLINE = "offline"
+        const val ONLINE_UNKNOWN = "unknown"
+        const val ONLINE_ERROR = "error"
     }
 }
