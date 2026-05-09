@@ -48,6 +48,12 @@ class DirectLoopPdaPrinterBridge(
     private var selectedPrinterAddress = ""
     private var selectedProfile = DirectLoopPrinterProfile.GENERIC
     private var connectionStatus = STATUS_DISCONNECTED
+    private var printerOnlineStatus = ONLINE_UNKNOWN
+    private var printerHealthCheckedAt = ""
+    private var officialSdkAvailable = false
+    private var officialSdkConnected = false
+    private var officialSdkLastMessage = ""
+    private var officialSdkLastError = ""
     private var lastError = ""
     private var lastProtocolTested = ""
     private var lastPrintResult = RESULT_NONE
@@ -196,6 +202,7 @@ class DirectLoopPdaPrinterBridge(
                 connectSocket(adapter, selection, bondedDevice)
             }
             connectionStatus = STATUS_CONNECTED
+            printerOnlineStatus = ONLINE_UNKNOWN
             lastError = ""
             guardedStatus().toString()
         } catch (error: IllegalArgumentException) {
@@ -217,6 +224,10 @@ class DirectLoopPdaPrinterBridge(
         chitengOfficialPrinterClient.disconnect()
         closeSocket()
         connectionStatus = STATUS_DISCONNECTED
+        printerOnlineStatus = ONLINE_UNKNOWN
+        printerHealthCheckedAt = timestamp()
+        lastError = ""
+        syncOfficialSdkSummary()
         return guardedStatus().toString()
     }
 
@@ -337,6 +348,9 @@ class DirectLoopPdaPrinterBridge(
             lastPrintResult = RESULT_FAILED
         }
         connectionStatus = STATUS_ERROR
+        printerOnlineStatus = ONLINE_ERROR
+        printerHealthCheckedAt = timestamp()
+        syncOfficialSdkSummary()
         return statusJson(bridgeAvailable = true, errorOverride = message)
     }
 
@@ -352,6 +366,7 @@ class DirectLoopPdaPrinterBridge(
     ): JSONObject {
         val adapter = bluetoothAdapter()
         val bluetoothEnabled = adapter?.let { isBluetoothEnabled(it) } ?: false
+        refreshPrinterHealth(bridgeAvailable, bluetoothEnabled)
         val pairedPrinters = if (bridgeAvailable && bluetoothEnabled && hasBluetoothConnectPermission()) {
             pairedPrinterArray(adapter)
         } else {
@@ -384,9 +399,110 @@ class DirectLoopPdaPrinterBridge(
             .put("selected_printer_address", selectedPrinterAddress)
             .put("selected_profile", selectedProfile.name)
             .put("connection_status", connectionStatus)
+            .put("printer_online_status", printerOnlineStatus)
+            .put("printer_health_checked_at", printerHealthCheckedAt)
+            .put("official_sdk_available", officialSdkAvailable)
+            .put("official_sdk_connected", officialSdkConnected)
+            .put("official_sdk_last_message", officialSdkLastMessage)
+            .put("official_sdk_last_error", officialSdkLastError)
             .put("last_error", statusError)
             .put("last_protocol_tested", lastProtocolTested)
             .put("last_print_result", lastPrintResult)
+    }
+
+    private fun refreshPrinterHealth(
+        bridgeAvailable: Boolean,
+        bluetoothEnabled: Boolean,
+    ) {
+        syncOfficialSdkSummary()
+        if (!bridgeAvailable) {
+            printerOnlineStatus = ONLINE_UNKNOWN
+            return
+        }
+
+        if (!bluetoothEnabled) {
+            if (connectionStatus == STATUS_CONNECTED || connectionStatus == STATUS_CONNECTING) {
+                connectionStatus = STATUS_DISCONNECTED
+            }
+            printerOnlineStatus = ONLINE_OFFLINE
+            printerHealthCheckedAt = timestamp()
+            return
+        }
+
+        if (selectedPrinterAddress.isBlank()) {
+            if (connectionStatus == STATUS_CONNECTED || connectionStatus == STATUS_CONNECTING) {
+                connectionStatus = STATUS_DISCONNECTED
+            }
+            printerOnlineStatus = ONLINE_UNKNOWN
+            return
+        }
+
+        if (!hasBluetoothConnectPermission()) {
+            printerOnlineStatus = ONLINE_UNKNOWN
+            return
+        }
+
+        if (selectedProfile == DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL) {
+            if (connectionStatus == STATUS_DISCONNECTED && !officialSdkConnected) {
+                printerOnlineStatus = ONLINE_UNKNOWN
+                return
+            }
+
+            val health = chitengOfficialPrinterClient.verifyConnection(selectedPrinterAddress)
+            printerHealthCheckedAt = timestamp()
+            officialSdkAvailable = health.sdkAvailable
+            officialSdkConnected = health.sdkConnected
+            officialSdkLastMessage = health.message
+            officialSdkLastError = health.error
+            printerOnlineStatus = health.onlineStatus
+
+            when (health.onlineStatus) {
+                ONLINE_ONLINE -> {
+                    connectionStatus = STATUS_CONNECTED
+                    lastError = ""
+                }
+
+                ONLINE_OFFLINE -> {
+                    connectionStatus = STATUS_DISCONNECTED
+                    lastError = health.error.ifBlank {
+                        health.message.ifBlank { PRINTER_NOT_RESPONDING_MESSAGE }
+                    }
+                }
+
+                ONLINE_ERROR -> {
+                    connectionStatus = STATUS_ERROR
+                    lastError = health.error.ifBlank {
+                        health.message.ifBlank { "Printer status query failed." }
+                    }
+                }
+
+                else -> {
+                    if (!health.sdkConnected && connectionStatus == STATUS_CONNECTED) {
+                        connectionStatus = STATUS_DISCONNECTED
+                    }
+                }
+            }
+            return
+        }
+
+        val socketConnected = socket?.isConnected == true && outputStream != null
+        if (connectionStatus == STATUS_CONNECTED && !socketConnected) {
+            connectionStatus = STATUS_DISCONNECTED
+            printerOnlineStatus = ONLINE_OFFLINE
+            printerHealthCheckedAt = timestamp()
+        } else if (connectionStatus == STATUS_CONNECTED) {
+            printerOnlineStatus = ONLINE_UNKNOWN
+            printerHealthCheckedAt = timestamp()
+        } else if (connectionStatus == STATUS_DISCONNECTED) {
+            printerOnlineStatus = ONLINE_UNKNOWN
+        }
+    }
+
+    private fun syncOfficialSdkSummary() {
+        officialSdkAvailable = chitengOfficialPrinterClient.isSdkAvailable()
+        officialSdkConnected = chitengOfficialPrinterClient.isOfficialSdkConnected()
+        officialSdkLastMessage = chitengOfficialPrinterClient.lastSdkMessage()
+        officialSdkLastError = chitengOfficialPrinterClient.lastSdkError()
     }
 
     private fun parsePrinterSelection(configOrAddress: String): PrinterSelection {
@@ -514,7 +630,9 @@ class DirectLoopPdaPrinterBridge(
                             .put("name", safeDeviceName(device))
                             .put("address", safeDeviceAddress(device))
                             .put("bond_state", safeBondState(device))
-                            .put("device_type", deviceType(device)),
+                            .put("device_type", deviceType(device))
+                            .put("source", SOURCE_PAIRED)
+                            .put("online_status", ONLINE_UNKNOWN),
                     )
                 }
         }
@@ -613,7 +731,7 @@ class DirectLoopPdaPrinterBridge(
 
     private fun seedPairedPrinters(adapter: BluetoothAdapter) {
         bondedDevices(adapter).forEach { device ->
-            recordDiscoveredDevice(device, rssi = null)
+            recordDiscoveredDevice(device, rssi = null, source = SOURCE_PAIRED)
         }
     }
 
@@ -626,8 +744,12 @@ class DirectLoopPdaPrinterBridge(
         }
     }
 
-    private fun recordDiscoveredDevice(device: BluetoothDevice?, rssi: Int?) {
-        val printer = discoveredPrinter(device, rssi) ?: return
+    private fun recordDiscoveredDevice(
+        device: BluetoothDevice?,
+        rssi: Int?,
+        source: String = SOURCE_DISCOVERED,
+    ) {
+        val printer = discoveredPrinter(device, rssi, source) ?: return
         discoveredPrintersByAddress[printer.address] = printer
     }
 
@@ -636,7 +758,7 @@ class DirectLoopPdaPrinterBridge(
         bondedDevices(adapter)
             .sortedWith(compareBy({ safeDeviceName(it).lowercase(Locale.US) }, { safeDeviceAddress(it) }))
             .forEach { device ->
-                discoveredPrinter(device, rssi = null)?.let { printer ->
+                discoveredPrinter(device, rssi = null, source = SOURCE_PAIRED)?.let { printer ->
                     merged[printer.address] = printer
                 }
             }
@@ -651,7 +773,11 @@ class DirectLoopPdaPrinterBridge(
         }
     }
 
-    private fun discoveredPrinter(device: BluetoothDevice?, rssi: Int?): DiscoveredPrinter? {
+    private fun discoveredPrinter(
+        device: BluetoothDevice?,
+        rssi: Int?,
+        source: String,
+    ): DiscoveredPrinter? {
         device ?: return null
         val address = safeDeviceAddress(device)
         if (address.isBlank()) return null
@@ -661,6 +787,7 @@ class DirectLoopPdaPrinterBridge(
             bondState = safeBondState(device),
             deviceType = deviceType(device),
             rssi = rssi,
+            source = source,
         )
     }
 
@@ -751,6 +878,7 @@ class DirectLoopPdaPrinterBridge(
         val bondState: String,
         val deviceType: String,
         val rssi: Int?,
+        val source: String,
     ) {
         fun toJson(): JSONObject {
             val json = JSONObject()
@@ -758,6 +886,8 @@ class DirectLoopPdaPrinterBridge(
                 .put("address", address)
                 .put("bond_state", bondState)
                 .put("device_type", deviceType)
+                .put("source", source)
+                .put("online_status", ONLINE_UNKNOWN)
             if (rssi != null) {
                 json.put("rssi", rssi)
             }
@@ -777,6 +907,13 @@ class DirectLoopPdaPrinterBridge(
         private const val STATUS_CONNECTING = "connecting"
         private const val STATUS_CONNECTED = "connected"
         private const val STATUS_ERROR = "error"
+        private const val ONLINE_ONLINE = "online"
+        private const val ONLINE_OFFLINE = "offline"
+        private const val ONLINE_UNKNOWN = "unknown"
+        private const val ONLINE_ERROR = "error"
+        private const val SOURCE_PAIRED = "paired"
+        private const val SOURCE_DISCOVERED = "discovered"
+        private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"
         private const val RESULT_FAILED = "failed"
