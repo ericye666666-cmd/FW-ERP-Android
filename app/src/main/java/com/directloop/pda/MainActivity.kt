@@ -610,6 +610,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        pdaPrinterBridge.destroy()
         rootLayout.removeView(webView)
         webView.destroy()
         super.onDestroy()

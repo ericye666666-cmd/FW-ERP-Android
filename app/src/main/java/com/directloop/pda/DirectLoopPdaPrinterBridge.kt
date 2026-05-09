@@ -6,8 +6,14 @@ import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONException
@@ -46,6 +52,36 @@ class DirectLoopPdaPrinterBridge(
     private var lastPrintResult = RESULT_NONE
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val discoveredPrintersByAddress = linkedMapOf<String, DiscoveredPrinter>()
+    private var discoveryStatus = DISCOVERY_IDLE
+    private var discoveryReceiverRegistered = false
+    private val discoveryTimeoutRunnable = Runnable {
+        synchronized(this@DirectLoopPdaPrinterBridge) {
+            cancelBluetoothDiscovery(bluetoothAdapter())
+            finishPrinterDiscovery()
+        }
+    }
+    private val discoveryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    val device = bluetoothDeviceFromIntent(intent)
+                    val rawRssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE)
+                    val rssi = rawRssi.takeIf { it != Short.MIN_VALUE }?.toInt()
+                    synchronized(this@DirectLoopPdaPrinterBridge) {
+                        recordDiscoveredDevice(device, rssi)
+                    }
+                }
+
+                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                    synchronized(this@DirectLoopPdaPrinterBridge) {
+                        finishPrinterDiscovery()
+                    }
+                }
+            }
+        }
+    }
 
     @JavascriptInterface
     @Synchronized
@@ -56,6 +92,59 @@ class DirectLoopPdaPrinterBridge(
     @JavascriptInterface
     @Synchronized
     fun listPairedPrinters(): String {
+        return guardedStatus().toString()
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    @SuppressLint("MissingPermission")
+    fun startPrinterDiscovery(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        val adapter = bluetoothAdapter()
+            ?: return failDiscovery("Bluetooth adapter is not available on this device.").toString()
+        if (!isBluetoothEnabled(adapter)) {
+            return failDiscovery("Bluetooth is disabled. Enable Bluetooth before searching printers.").toString()
+        }
+        if (!ensureBluetoothDiscoveryPermission()) {
+            return statusJson(bridgeAvailable = true, errorOverride = lastError).toString()
+        }
+
+        stopPrinterDiscoveryInternal(adapter, nextStatus = DISCOVERY_IDLE)
+        discoveredPrintersByAddress.clear()
+        seedPairedPrinters(adapter)
+        discoveryStatus = DISCOVERY_SEARCHING
+        lastError = ""
+
+        return try {
+            registerDiscoveryReceiver()
+            if (!adapter.startDiscovery()) {
+                stopPrinterDiscoveryInternal(adapter, nextStatus = DISCOVERY_ERROR)
+                lastError = "Bluetooth printer discovery could not start. Retry from the PDA page or Android Bluetooth settings."
+            } else {
+                mainHandler.postDelayed(discoveryTimeoutRunnable, DISCOVERY_TIMEOUT_MS)
+            }
+            guardedStatus().toString()
+        } catch (error: SecurityException) {
+            stopPrinterDiscoveryInternal(adapter, nextStatus = DISCOVERY_ERROR)
+            failDiscovery("Bluetooth permission denied while searching printers.").toString()
+        } catch (error: RuntimeException) {
+            stopPrinterDiscoveryInternal(adapter, nextStatus = DISCOVERY_ERROR)
+            failDiscovery("Bluetooth printer discovery failed: ${error.message ?: "unknown error"}.").toString()
+        }
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun stopPrinterDiscovery(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+        stopPrinterDiscoveryInternal(bluetoothAdapter(), nextStatus = DISCOVERY_IDLE)
+        return guardedStatus().toString()
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun getDiscoveredPrinters(): String {
         return guardedStatus().toString()
     }
 
@@ -76,6 +165,12 @@ class DirectLoopPdaPrinterBridge(
         val adapter = bluetoothAdapter() ?: return fail("Bluetooth adapter is not available on this device.").toString()
         if (!ensureBluetoothConnectPermission()) return guardedStatus().toString()
         if (!isBluetoothEnabled(adapter)) return fail("Bluetooth is disabled. Enable Bluetooth before connecting a printer.").toString()
+        if (!BluetoothAdapter.checkBluetoothAddress(selection.address)) {
+            return fail("Invalid Bluetooth printer address: ${selection.address}.").toString()
+        }
+
+        val bondedDevice = bondedDeviceForAddress(adapter, selection.address)
+            ?: return fail("请先在 Android 系统蓝牙中完成配对后再连接。").toString()
 
         closeSocket()
         selectedPrinterAddress = selection.address
@@ -85,7 +180,7 @@ class DirectLoopPdaPrinterBridge(
         lastError = ""
 
         return try {
-            connectSocket(adapter, selection)
+            connectSocket(adapter, selection, bondedDevice)
             connectionStatus = STATUS_CONNECTED
             lastError = ""
             guardedStatus().toString()
@@ -156,6 +251,12 @@ class DirectLoopPdaPrinterBridge(
         return guardedStatus().toString()
     }
 
+    @Synchronized
+    fun destroy() {
+        stopPrinterDiscoveryInternal(bluetoothAdapter(), nextStatus = DISCOVERY_IDLE)
+        closeSocket()
+    }
+
     private fun guardedStatus(): JSONObject {
         if (!isTrustedPage()) return untrustedStatus()
         return statusJson(bridgeAvailable = true)
@@ -176,6 +277,12 @@ class DirectLoopPdaPrinterBridge(
         return statusJson(bridgeAvailable = true, errorOverride = message)
     }
 
+    private fun failDiscovery(message: String): JSONObject {
+        lastError = message
+        discoveryStatus = DISCOVERY_ERROR
+        return statusJson(bridgeAvailable = true, errorOverride = message)
+    }
+
     private fun statusJson(
         bridgeAvailable: Boolean,
         errorOverride: String? = null,
@@ -184,6 +291,11 @@ class DirectLoopPdaPrinterBridge(
         val bluetoothEnabled = adapter?.let { isBluetoothEnabled(it) } ?: false
         val pairedPrinters = if (bridgeAvailable && bluetoothEnabled && hasBluetoothConnectPermission()) {
             pairedPrinterArray(adapter)
+        } else {
+            JSONArray()
+        }
+        val discoveredPrinters = if (bridgeAvailable && bluetoothEnabled && hasBluetoothConnectPermission()) {
+            discoveredPrinterArray(adapter)
         } else {
             JSONArray()
         }
@@ -200,6 +312,9 @@ class DirectLoopPdaPrinterBridge(
         return JSONObject()
             .put("bridge_available", bridgeAvailable)
             .put("bluetooth_enabled", bluetoothEnabled)
+            .put("discovery_status", discoveryStatus)
+            .put("discovered_printer_count", discoveredPrinters.length())
+            .put("discovered_printers", discoveredPrinters)
             .put("paired_printer_count", pairedPrinters.length())
             .put("paired_printers", pairedPrinters)
             .put("selected_printer_name", selectedPrinterName)
@@ -257,6 +372,38 @@ class DirectLoopPdaPrinterBridge(
         return false
     }
 
+    private fun ensureBluetoothDiscoveryPermission(): Boolean {
+        if (hasBluetoothDiscoveryPermission()) return true
+
+        activity.runOnUiThread {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                    activity.requestPermissions(
+                        arrayOf(
+                            Manifest.permission.BLUETOOTH_CONNECT,
+                            Manifest.permission.BLUETOOTH_SCAN,
+                        ),
+                        BLUETOOTH_PERMISSION_REQUEST_CODE,
+                    )
+                }
+
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
+                    activity.requestPermissions(
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                        BLUETOOTH_PERMISSION_REQUEST_CODE,
+                    )
+                }
+            }
+        }
+        lastError = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            "Bluetooth permission is required. Grant Nearby devices permission and retry."
+        } else {
+            "Bluetooth discovery location permission is required. Grant Location permission and retry."
+        }
+        discoveryStatus = DISCOVERY_ERROR
+        return false
+    }
+
     private fun hasBluetoothConnectPermission(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
@@ -267,8 +414,20 @@ class DirectLoopPdaPrinterBridge(
             activity.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun hasBluetoothDiscoveryPermission(): Boolean {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                hasBluetoothConnectPermission() && hasBluetoothScanPermission()
+
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ->
+                activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+            else -> true
+        }
+    }
+
     private fun permissionError(): String? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasBluetoothConnectPermission()) {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && (!hasBluetoothConnectPermission() || !hasBluetoothScanPermission())) {
             "Bluetooth permission is required. Grant Nearby devices permission and retry."
         } else {
             null
@@ -285,38 +444,194 @@ class DirectLoopPdaPrinterBridge(
 
         return JSONArray().apply {
             devices
-                .sortedBy { it.name.orEmpty().lowercase(Locale.US) }
+                .sortedWith(compareBy({ safeDeviceName(it).lowercase(Locale.US) }, { safeDeviceAddress(it) }))
                 .forEach { device ->
                     put(
                         JSONObject()
-                            .put("name", device.name.orEmpty())
-                            .put("address", device.address.orEmpty())
-                            .put("bond_state", bondState(device.bondState)),
+                            .put("name", safeDeviceName(device))
+                            .put("address", safeDeviceAddress(device))
+                            .put("bond_state", safeBondState(device))
+                            .put("device_type", deviceType(device)),
                     )
                 }
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun connectSocket(adapter: BluetoothAdapter, selection: PrinterSelection) {
+    private fun connectSocket(
+        adapter: BluetoothAdapter,
+        selection: PrinterSelection,
+        bondedDevice: BluetoothDevice,
+    ) {
         val device = adapter.getRemoteDevice(selection.address)
-        val bondedDevice = adapter.bondedDevices.firstOrNull { it.address == selection.address }
-        if (bondedDevice == null) {
-            throw IOException("selected printer is not paired")
-        }
 
         if (selection.name.isBlank()) {
             selectedPrinterName = bondedDevice.name.orEmpty()
         }
 
         if (hasBluetoothScanPermission()) {
-            adapter.cancelDiscovery()
+            try {
+                adapter.cancelDiscovery()
+            } catch (_: SecurityException) {
+                // Connecting can continue even if discovery cancellation is denied.
+            }
         }
 
         val connectedSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
         connectedSocket.connect()
         socket = connectedSocket
         outputStream = connectedSocket.outputStream
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun bondedDeviceForAddress(adapter: BluetoothAdapter, address: String): BluetoothDevice? {
+        return try {
+            adapter.bondedDevices.firstOrNull { it.address == address }
+        } catch (_: SecurityException) {
+            null
+        }
+    }
+
+    private fun registerDiscoveryReceiver() {
+        if (discoveryReceiverRegistered) return
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.registerReceiver(discoveryReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            activity.registerReceiver(discoveryReceiver, filter)
+        }
+        discoveryReceiverRegistered = true
+    }
+
+    private fun unregisterDiscoveryReceiver() {
+        if (!discoveryReceiverRegistered) return
+        try {
+            activity.unregisterReceiver(discoveryReceiver)
+        } catch (_: IllegalArgumentException) {
+            // Receiver may already be unregistered during Activity teardown.
+        }
+        discoveryReceiverRegistered = false
+    }
+
+    private fun stopPrinterDiscoveryInternal(
+        adapter: BluetoothAdapter?,
+        nextStatus: String,
+    ) {
+        mainHandler.removeCallbacks(discoveryTimeoutRunnable)
+        cancelBluetoothDiscovery(adapter)
+        unregisterDiscoveryReceiver()
+        discoveryStatus = nextStatus
+    }
+
+    private fun finishPrinterDiscovery() {
+        mainHandler.removeCallbacks(discoveryTimeoutRunnable)
+        unregisterDiscoveryReceiver()
+        if (discoveryStatus == DISCOVERY_SEARCHING) {
+            discoveryStatus = DISCOVERY_FINISHED
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun cancelBluetoothDiscovery(adapter: BluetoothAdapter?) {
+        if (adapter == null || !hasBluetoothScanPermission()) return
+        try {
+            if (adapter.isDiscovering) {
+                adapter.cancelDiscovery()
+            }
+        } catch (_: SecurityException) {
+            lastError = "Bluetooth permission denied while stopping printer discovery."
+            discoveryStatus = DISCOVERY_ERROR
+        }
+    }
+
+    private fun seedPairedPrinters(adapter: BluetoothAdapter) {
+        bondedDevices(adapter).forEach { device ->
+            recordDiscoveredDevice(device, rssi = null)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun bondedDevices(adapter: BluetoothAdapter?): Set<BluetoothDevice> {
+        return try {
+            adapter?.bondedDevices.orEmpty()
+        } catch (_: SecurityException) {
+            emptySet()
+        }
+    }
+
+    private fun recordDiscoveredDevice(device: BluetoothDevice?, rssi: Int?) {
+        val printer = discoveredPrinter(device, rssi) ?: return
+        discoveredPrintersByAddress[printer.address] = printer
+    }
+
+    private fun discoveredPrinterArray(adapter: BluetoothAdapter?): JSONArray {
+        val merged = linkedMapOf<String, DiscoveredPrinter>()
+        bondedDevices(adapter)
+            .sortedWith(compareBy({ safeDeviceName(it).lowercase(Locale.US) }, { safeDeviceAddress(it) }))
+            .forEach { device ->
+                discoveredPrinter(device, rssi = null)?.let { printer ->
+                    merged[printer.address] = printer
+                }
+            }
+        discoveredPrintersByAddress.values.forEach { printer ->
+            merged[printer.address] = printer
+        }
+
+        return JSONArray().apply {
+            merged.values
+                .sortedWith(compareBy({ it.name.lowercase(Locale.US) }, { it.address }))
+                .forEach { printer -> put(printer.toJson()) }
+        }
+    }
+
+    private fun discoveredPrinter(device: BluetoothDevice?, rssi: Int?): DiscoveredPrinter? {
+        device ?: return null
+        val address = safeDeviceAddress(device)
+        if (address.isBlank()) return null
+        return DiscoveredPrinter(
+            name = safeDeviceName(device),
+            address = address,
+            bondState = safeBondState(device),
+            deviceType = deviceType(device),
+            rssi = rssi,
+        )
+    }
+
+    private fun bluetoothDeviceFromIntent(intent: Intent): BluetoothDevice? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+        }
+    }
+
+    private fun safeDeviceName(device: BluetoothDevice): String {
+        return try {
+            device.name.orEmpty()
+        } catch (_: SecurityException) {
+            ""
+        }
+    }
+
+    private fun safeDeviceAddress(device: BluetoothDevice): String {
+        return try {
+            device.address.orEmpty()
+        } catch (_: SecurityException) {
+            ""
+        }
+    }
+
+    private fun safeBondState(device: BluetoothDevice): String {
+        return try {
+            bondState(device.bondState)
+        } catch (_: SecurityException) {
+            "unknown"
+        }
     }
 
     private fun closeSocket() {
@@ -347,15 +662,54 @@ class DirectLoopPdaPrinterBridge(
         }
     }
 
+    private fun deviceType(device: BluetoothDevice): String {
+        return try {
+            when (device.type) {
+                BluetoothDevice.DEVICE_TYPE_CLASSIC -> "classic"
+                BluetoothDevice.DEVICE_TYPE_LE -> "le"
+                BluetoothDevice.DEVICE_TYPE_DUAL -> "dual"
+                BluetoothDevice.DEVICE_TYPE_UNKNOWN -> "unknown"
+                else -> device.type.toString()
+            }
+        } catch (_: SecurityException) {
+            "unknown"
+        }
+    }
+
     private data class PrinterSelection(
         val profile: DirectLoopPrinterProfile,
         val address: String,
         val name: String,
     )
 
+    private data class DiscoveredPrinter(
+        val name: String,
+        val address: String,
+        val bondState: String,
+        val deviceType: String,
+        val rssi: Int?,
+    ) {
+        fun toJson(): JSONObject {
+            val json = JSONObject()
+                .put("name", name)
+                .put("address", address)
+                .put("bond_state", bondState)
+                .put("device_type", deviceType)
+            if (rssi != null) {
+                json.put("rssi", rssi)
+            }
+            return json
+        }
+    }
+
     companion object {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         private const val BLUETOOTH_PERMISSION_REQUEST_CODE = 1104
+        private const val DISCOVERY_TIMEOUT_MS = 15000L
+        private const val DISCOVERY_IDLE = "idle"
+        private const val DISCOVERY_SEARCHING = "searching"
+        private const val DISCOVERY_FINISHED = "finished"
+        private const val DISCOVERY_ERROR = "error"
         private const val STATUS_DISCONNECTED = "disconnected"
         private const val STATUS_CONNECTING = "connecting"
         private const val STATUS_CONNECTED = "connected"

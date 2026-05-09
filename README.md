@@ -52,8 +52,9 @@ should update those BuildConfig values instead of changing app logic.
 
 ## Bluetooth printer diagnostic bridge
 
-Clerk PDA will expose this native diagnostic surface in the FW-ERP web UI under
-`Clerk PDA -> 我的 -> 蓝牙打印机测试`.
+Clerk PDA can expose this native diagnostic surface in the FW-ERP web UI under
+`Clerk PDA -> 我的 -> 蓝牙打印机测试` and the printer connection flow under
+`Clerk PDA -> 我的 -> 打印机连接`.
 
 The Android WebView provides:
 
@@ -69,10 +70,20 @@ Supported bridge methods:
 
 - `getPrinterStatus()`
 - `listPairedPrinters()`
+- `startPrinterDiscovery()`
+- `stopPrinterDiscovery()`
+- `getDiscoveredPrinters()`
 - `connectPrinter(configOrAddress)`
 - `disconnectPrinter()`
 - `printTestLabel(protocol)`
 - `getLastPrintResult()`
+
+`getPrinterStatus()` also reports `discovery_status`,
+`discovered_printer_count`, and `discovered_printers`. Discovery uses Android
+Bluetooth Classic search, includes already paired printers, deduplicates by
+Bluetooth address, and times out after a short scan window. Unpaired discovered
+printers must be paired in Android system Bluetooth before `connectPrinter` can
+connect.
 
 `connectPrinter` accepts either a paired Bluetooth MAC address string or a JSON
 string with the selected test profile:
@@ -148,8 +159,8 @@ not chosen over a real scan input.
 - No STORE_ITEM production batch printing.
 - No marking web print jobs as printed.
 - No FW-ERP backend status writeback from Android.
-- No Bluetooth discovery UI; pair Chiteng S1 and Urovo printers in Android
-  Bluetooth settings first.
+- No Android-side pairing UI; unpaired discovered printers still need Android
+  system Bluetooth pairing before connection.
 - No backend code.
 - No Zebra SDK, Honeywell SDK, Urovo SDK, CameraX scanner flow, POS logic,
   production printing, or offline queue.
@@ -302,8 +313,11 @@ Manual Bluetooth printer diagnostic test:
 1. Pair Chiteng S1 in Android Bluetooth settings.
 2. Pair the Urovo Bluetooth printer in Android Bluetooth settings.
 3. Open `Direct Loop PDA`.
-4. In FW-ERP, open `Clerk PDA -> 我的 -> 蓝牙打印机测试`.
-5. Confirm `listPairedPrinters()` returns both paired devices.
-6. Select `CHITENG_S1`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
-7. Select `UROVO`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
-8. Record which protocol prints correctly for each model.
+4. In FW-ERP, open `Clerk PDA -> 我的 -> 蓝牙打印机测试` or
+   `Clerk PDA -> 我的 -> 打印机连接` using `window.DirectLoopPdaPrinter`.
+5. Confirm `listPairedPrinters()` returns paired devices.
+6. Run `startPrinterDiscovery()` and confirm `getDiscoveredPrinters()` includes
+   paired printers plus any nearby discovered devices.
+7. Select `CHITENG_S1`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
+8. Select `UROVO`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
+9. Record which protocol prints correctly for each model.
