@@ -74,13 +74,27 @@ Supported profiles:
 Supported diagnostic protocols:
 
 - `TSPL`
+- `TSPL_SIMPLE_TEXT`
+- `TSPL_DENSITY_TEXT`
+- `TSPL_NO_GAP_CONTINUOUS`
+- `TSPL_GAP_DETECT`
+- `RAW_LF_FEED`
 - `CPCL`
+- `CPCL_SIMPLE_TEXT`
 - `ESC_POS`
+- `ESC_POS_TEXT`
 
-Each test label includes `DIRECT LOOP`, `PRINTER TEST`,
-`MODEL: <selected profile>`, `TEST123456`, and a timestamp. The diagnostic
-bridge uses Bluetooth Classic SPP first with UUID
+The original `TSPL`, `CPCL`, and `ESC_POS` test labels include `DIRECT LOOP`,
+`PRINTER TEST`, `MODEL: <selected profile>`, `TEST123456`, and a timestamp. The
+S1 variants intentionally use simpler payloads for media and command-mode
+diagnosis. The diagnostic bridge uses Bluetooth Classic SPP first with UUID
 `00001101-0000-1000-8000-00805F9B34FB`.
+
+Chiteng S1 field diagnostic note: `TSPL` currently feeds paper but prints no
+content. The bridge/socket write path is therefore treated as working, while the
+likely mismatch is media/gap/font/payload mode. The S1-specific variants are
+diagnostic only and exist to identify the command mode before any production
+STORE_ITEM batch printing is added.
 
 Trusted-host rule:
 
@@ -145,8 +159,8 @@ Out of scope for the diagnostic bridge:
 
 ### Protocol Test Clients
 
-Responsible for sending diagnostic TSPL, CPCL, and ESC/POS test labels to the
-connected printer.
+Responsible for sending diagnostic TSPL, CPCL, ESC/POS, and Chiteng S1 variant
+test payloads to the connected printer.
 
 Responsibilities:
 
