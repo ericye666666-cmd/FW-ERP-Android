@@ -13,6 +13,7 @@ enum class BluetoothPrinterTestProtocol {
     CPCL_SIMPLE_TEXT,
     ESC_POS,
     ESC_POS_TEXT,
+    CHITENG_S1_OFFICIAL,
     ;
 
     companion object {
@@ -50,6 +51,7 @@ object BluetoothPrinterTestPayloads {
             BluetoothPrinterTestProtocol.CPCL_SIMPLE_TEXT -> buildCpclSimpleText()
             BluetoothPrinterTestProtocol.ESC_POS -> buildEscPos(selectedProfile, timestamp)
             BluetoothPrinterTestProtocol.ESC_POS_TEXT -> buildEscPosText()
+            BluetoothPrinterTestProtocol.CHITENG_S1_OFFICIAL -> error("CHITENG_S1_OFFICIAL is printed through the official CTPL SDK client.")
         }
     }
 

@@ -27,6 +27,7 @@ import java.util.UUID
 
 enum class DirectLoopPrinterProfile {
     CHITENG_S1,
+    CHITENG_S1_OFFICIAL,
     UROVO,
     GENERIC,
     ;
@@ -52,6 +53,7 @@ class DirectLoopPdaPrinterBridge(
     private var lastPrintResult = RESULT_NONE
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
+    private val chitengOfficialPrinterClient = ChitengS1OfficialPrinterClient(activity.application)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val discoveredPrintersByAddress = linkedMapOf<String, DiscoveredPrinter>()
     private var discoveryStatus = DISCOVERY_IDLE
@@ -172,15 +174,27 @@ class DirectLoopPdaPrinterBridge(
         val bondedDevice = bondedDeviceForAddress(adapter, selection.address)
             ?: return fail("请先在 Android 系统蓝牙中完成配对后再连接。").toString()
 
-        closeSocket()
         selectedPrinterAddress = selection.address
         selectedPrinterName = selection.name
+        if (selectedPrinterName.isBlank()) {
+            selectedPrinterName = safeDeviceName(bondedDevice)
+        }
         selectedProfile = selection.profile
         connectionStatus = STATUS_CONNECTING
         lastError = ""
 
         return try {
-            connectSocket(adapter, selection, bondedDevice)
+            if (selection.profile == DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL) {
+                closeSocket()
+                val result = chitengOfficialPrinterClient.connect(selection.address, selectedPrinterName)
+                if (!result.success) {
+                    return fail(result.message).toString()
+                }
+            } else {
+                chitengOfficialPrinterClient.disconnect()
+                closeSocket()
+                connectSocket(adapter, selection, bondedDevice)
+            }
             connectionStatus = STATUS_CONNECTED
             lastError = ""
             guardedStatus().toString()
@@ -200,6 +214,7 @@ class DirectLoopPdaPrinterBridge(
     @Synchronized
     fun disconnectPrinter(): String {
         if (!isTrustedPage()) return untrustedStatus().toString()
+        chitengOfficialPrinterClient.disconnect()
         closeSocket()
         connectionStatus = STATUS_DISCONNECTED
         return guardedStatus().toString()
@@ -215,6 +230,10 @@ class DirectLoopPdaPrinterBridge(
                 "Unsupported printer test protocol: $protocol. Use ${BluetoothPrinterTestProtocol.supportedNames}.",
                 printAttempt = true,
             ).toString()
+
+        if (testProtocol == BluetoothPrinterTestProtocol.CHITENG_S1_OFFICIAL) {
+            return printOfficialChitengTestLabel()
+        }
 
         val stream = outputStream
             ?: return fail(
@@ -254,7 +273,51 @@ class DirectLoopPdaPrinterBridge(
     @Synchronized
     fun destroy() {
         stopPrinterDiscoveryInternal(bluetoothAdapter(), nextStatus = DISCOVERY_IDLE)
+        chitengOfficialPrinterClient.disconnect()
         closeSocket()
+    }
+
+    private fun printOfficialChitengTestLabel(): String {
+        lastProtocolTested = BluetoothPrinterTestProtocol.CHITENG_S1_OFFICIAL.name
+        lastPrintResult = RESULT_FAILED
+
+        if (selectedPrinterAddress.isBlank()) {
+            return fail(
+                "No Bluetooth printer is selected. Select a paired Chiteng S1 printer before printing the official SDK test label.",
+                printAttempt = true,
+            ).toString()
+        }
+
+        val adapter = bluetoothAdapter()
+            ?: return fail("Bluetooth adapter is not available on this device.", printAttempt = true).toString()
+        if (!ensureBluetoothConnectPermission()) return guardedStatus().toString()
+        if (!isBluetoothEnabled(adapter)) {
+            return fail("Bluetooth is disabled. Enable Bluetooth before printing the official SDK test label.", printAttempt = true).toString()
+        }
+        if (!chitengOfficialPrinterClient.isSdkAvailable()) {
+            return fail("Chiteng official CTPL SDK is not available in this build.", printAttempt = true).toString()
+        }
+        if (bondedDeviceForAddress(adapter, selectedPrinterAddress) == null) {
+            return fail("请先在 Android 系统蓝牙中完成配对后再连接。", printAttempt = true).toString()
+        }
+
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+
+        val result = chitengOfficialPrinterClient.printOfficialDiagnosticLabel(
+            address = selectedPrinterAddress,
+            name = selectedPrinterName,
+        )
+
+        return if (result.success) {
+            connectionStatus = STATUS_CONNECTED
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            guardedStatus().toString()
+        } else {
+            connectionStatus = STATUS_ERROR
+            fail(result.message, printAttempt = true).toString()
+        }
     }
 
     private fun guardedStatus(): JSONObject {
