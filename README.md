@@ -94,12 +94,27 @@ Supported profiles:
 Supported test protocols:
 
 - `TSPL`
+- `TSPL_SIMPLE_TEXT`
+- `TSPL_DENSITY_TEXT`
+- `TSPL_NO_GAP_CONTINUOUS`
+- `TSPL_GAP_DETECT`
+- `RAW_LF_FEED`
 - `CPCL`
+- `CPCL_SIMPLE_TEXT`
 - `ESC_POS`
+- `ESC_POS_TEXT`
 
-Each protocol prints a small diagnostic label containing `DIRECT LOOP`,
+The original `TSPL`, `CPCL`, and `ESC_POS` labels include `DIRECT LOOP`,
 `PRINTER TEST`, `MODEL: <selected profile>`, `TEST123456`, and a timestamp.
-This does not read, update, or mark any FW-ERP web print job as printed.
+The Chiteng S1 variants intentionally use simpler payloads for diagnosis. This
+does not read, update, or mark any FW-ERP web print job as printed.
+
+Chiteng S1 diagnostic note: TSPL feeds paper but prints no content. Because the
+socket write succeeds, the suspected cause is a media/gap/font/payload mismatch.
+Use the `TSPL_SIMPLE_TEXT`,
+`TSPL_DENSITY_TEXT`, `TSPL_NO_GAP_CONTINUOUS`, `TSPL_GAP_DETECT`,
+`RAW_LF_FEED`, `ESC_POS_TEXT`, and `CPCL_SIMPLE_TEXT` variants to isolate the
+correct command mode before any production STORE_ITEM printing is implemented.
 
 Bridge status responses include:
 
@@ -304,6 +319,8 @@ Manual Bluetooth printer diagnostic test:
 3. Open `Direct Loop PDA`.
 4. In FW-ERP, open `Clerk PDA -> 我的 -> 蓝牙打印机测试`.
 5. Confirm `listPairedPrinters()` returns both paired devices.
-6. Select `CHITENG_S1`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
+6. Select `CHITENG_S1`, connect, then test `TSPL`, `TSPL_SIMPLE_TEXT`,
+   `TSPL_DENSITY_TEXT`, `TSPL_NO_GAP_CONTINUOUS`, `TSPL_GAP_DETECT`,
+   `RAW_LF_FEED`, `ESC_POS_TEXT`, `CPCL_SIMPLE_TEXT`, `CPCL`, and `ESC_POS`.
 7. Select `UROVO`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
 8. Record which protocol prints correctly for each model.
