@@ -447,9 +447,16 @@ Second-stage implementation status:
 - Print Chiteng official diagnostic labels through `CTPL.drawText` /
   `CTPL.drawBarCode`.
 - Keep SDK calls isolated in `ChitengS1OfficialPrinterClient.kt`.
-- Status query through `CTPL.queryPrintState()` and callback data remains future
-  work; this PR only treats SDK connect/execute success as diagnostic send
-  success.
+- Status truthfulness now uses `CTPL.queryPrintState()` plus
+  `RespCallback.onDataResponse(...)` as a non-printing health check for
+  `CHITENG_S1_OFFICIAL`.
+- A previous SDK connect success is not treated as proof that the printer is
+  still online. If `queryPrintState()` times out or throws, Android reports the
+  selected printer as disconnected/offline and asks the user to turn on and
+  reconnect the printer.
+- Paired and discovered printer rows now carry `source` and `online_status`.
+  `source=paired` means Android has a bond; `source=discovered` means Bluetooth
+  discovery saw the device. Neither is equivalent to online or connected.
 
 Raw TSPL tests to keep:
 
@@ -468,6 +475,24 @@ Raw TSPL tests to downgrade to "diagnostic only":
 
 The next bridge work should add SDK/preview methods without making them
 production print completion APIs.
+
+Current truthful-status bridge fields:
+
+```json
+{
+  "connection_status": "connected | disconnected | connecting | error",
+  "printer_online_status": "online | offline | unknown | error",
+  "printer_health_checked_at": "yyyy-MM-dd HH:mm:ss",
+  "official_sdk_available": true,
+  "official_sdk_connected": false,
+  "official_sdk_last_message": "",
+  "official_sdk_last_error": ""
+}
+```
+
+For `CHITENG_S1_OFFICIAL`, `getPrinterStatus()` may run the CTPL status query.
+This is intentionally separate from printing: no test label, feed command,
+calibration command, or STORE_ITEM payload is used as a health check.
 
 ### Current Diagnostic: `printTestLabel("CHITENG_S1_OFFICIAL")`
 

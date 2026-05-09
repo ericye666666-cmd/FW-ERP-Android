@@ -79,11 +79,18 @@ Supported bridge methods:
 - `getLastPrintResult()`
 
 `getPrinterStatus()` also reports `discovery_status`,
-`discovered_printer_count`, and `discovered_printers`. Discovery uses Android
-Bluetooth Classic search, includes already paired printers, deduplicates by
-Bluetooth address, and times out after a short scan window. Unpaired discovered
-printers must be paired in Android system Bluetooth before `connectPrinter` can
-connect.
+`discovered_printer_count`, `discovered_printers`, `printer_online_status`,
+`printer_health_checked_at`, and official Chiteng SDK health fields. Discovery
+uses Android Bluetooth Classic search, includes already paired printers,
+deduplicates by Bluetooth address, and times out after a short scan window.
+Unpaired discovered printers must be paired in Android system Bluetooth before
+`connectPrinter` can connect.
+
+Paired and discovered devices are not treated as live printers. A paired device
+only means Android knows the bond; a discovered device only means Bluetooth saw
+it during scanning. Printer list rows include `source` (`paired` or
+`discovered`) and `online_status`, which remains `unknown` unless a separate
+connection health check verifies the selected printer.
 
 `connectPrinter` accepts either a paired Bluetooth MAC address string or a JSON
 string with the selected test profile:
@@ -128,6 +135,12 @@ a Code128 barcode for `TEST123456`. It is still diagnostic-only: Android does
 not generate STORE_ITEM barcodes and does not mark any FW-ERP print job as
 printed.
 
+For `CHITENG_S1_OFFICIAL`, status polling does not rely on a previous connect
+success alone. The bridge uses the CTPL `queryPrintState()` response as a
+non-printing health check; if the printer does not respond, the selected printer
+is reported as disconnected/offline instead of staying connected forever. The
+health check never feeds paper and never marks a business print job as printed.
+
 Chiteng S1 diagnostic note: TSPL feeds paper but prints no content. Because the
 socket write succeeds, the suspected cause is a media/gap/font/payload mismatch.
 Use the `TSPL_SIMPLE_TEXT`,
@@ -143,10 +156,19 @@ Bridge status responses include:
   "bluetooth_enabled": true,
   "paired_printer_count": 0,
   "paired_printers": [],
+  "discovery_status": "idle",
+  "discovered_printer_count": 0,
+  "discovered_printers": [],
   "selected_printer_name": "",
   "selected_printer_address": "",
   "selected_profile": "GENERIC",
   "connection_status": "disconnected",
+  "printer_online_status": "unknown",
+  "printer_health_checked_at": "",
+  "official_sdk_available": true,
+  "official_sdk_connected": false,
+  "official_sdk_last_message": "",
+  "official_sdk_last_error": "",
   "last_error": "",
   "last_protocol_tested": "",
   "last_print_result": "none"
