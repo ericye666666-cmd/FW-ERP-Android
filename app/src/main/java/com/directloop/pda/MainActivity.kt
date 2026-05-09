@@ -51,6 +51,9 @@ class MainActivity : Activity() {
     private var lastRequestedUrl = BuildConfig.FW_ERP_APP_URL
     private var lastFailedUrl = BuildConfig.FW_ERP_APP_URL
     private var mainFrameLoadFailed = false
+    private var lastPauseAt: Long = 0L
+    private var lastFreshLoadAt: Long = 0L
+    private var hasFinishedInitialLoad = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,12 +91,7 @@ class MainActivity : Activity() {
         hideSystemUi()
         configureWebView()
 
-        if (savedInstanceState == null) {
-            webView.loadUrl(BuildConfig.FW_ERP_APP_URL)
-        } else {
-            webView.restoreState(savedInstanceState)
-            hideLoadingScreen()
-        }
+        loadFreshApp()
     }
 
     private fun configureWindow() {
@@ -282,6 +280,23 @@ class MainActivity : Activity() {
         return lastFailedUrl.ifBlank { lastRequestedUrl }.ifBlank { BuildConfig.FW_ERP_APP_URL }
     }
 
+    private fun getCacheBustedAppUrl(): String {
+        val base = BuildConfig.FW_ERP_APP_URL
+        val separator = if (base.contains("?")) "&" else "?"
+        return base + separator + "pda_reload=" + System.currentTimeMillis()
+    }
+
+    private fun loadFreshApp() {
+        val now = System.currentTimeMillis()
+        if (now - lastFreshLoadAt < FRESH_LOAD_INTERVAL_MS) return
+
+        lastFreshLoadAt = now
+        mainFrameLoadFailed = false
+        hideOfflineScreen()
+        showLoadingScreen()
+        webView.loadUrl(getCacheBustedAppUrl())
+    }
+
     private fun focusScannerInput(view: WebView) {
         view.post {
             view.requestFocus()
@@ -321,6 +336,7 @@ class MainActivity : Activity() {
         }
 
         override fun onPageFinished(view: WebView, url: String) {
+            hasFinishedInitialLoad = true
             CookieManager.getInstance().flush()
             if (!mainFrameLoadFailed) {
                 hideOfflineScreen()
@@ -534,10 +550,20 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         hideSystemUi()
+        val now = System.currentTimeMillis()
+        if (
+            hasFinishedInitialLoad &&
+            lastPauseAt > 0L &&
+            now - lastPauseAt > FRESH_LOAD_INTERVAL_MS &&
+            now - lastFreshLoadAt > FRESH_LOAD_INTERVAL_MS
+        ) {
+            loadFreshApp()
+        }
     }
 
     override fun onPause() {
         super.onPause()
+        lastPauseAt = System.currentTimeMillis()
         CookieManager.getInstance().flush()
     }
 
@@ -550,6 +576,7 @@ class MainActivity : Activity() {
     companion object {
         private const val TAG = "DirectLoopPDA"
         private const val SPLASH_TITLE = "Direct Loop PDA"
+        private const val FRESH_LOAD_INTERVAL_MS = 5000L
         private const val WEB_SESSION_STORAGE_PROBE_SCRIPT = """
 (function () {
   try {
