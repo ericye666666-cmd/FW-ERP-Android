@@ -33,16 +33,26 @@ The web UI placement is:
 
 ```text
 Clerk PDA -> 我的 -> 蓝牙打印机测试
+Clerk PDA -> 我的 -> 打印机连接
 ```
 
 Supported methods:
 
 - `getPrinterStatus()`
 - `listPairedPrinters()`
+- `startPrinterDiscovery()`
+- `stopPrinterDiscovery()`
+- `getDiscoveredPrinters()`
 - `connectPrinter(configOrAddress)`
 - `disconnectPrinter()`
 - `printTestLabel(protocol)`
 - `getLastPrintResult()`
+
+`getPrinterStatus()` includes paired printer fields plus discovery fields:
+`discovery_status`, `discovered_printer_count`, and `discovered_printers`.
+Discovery is diagnostic-only, uses Android Bluetooth Classic discovery, includes
+paired printers and nearby discovered devices, and deduplicates by Bluetooth
+address.
 
 `connectPrinter` accepts a paired Bluetooth MAC address string or a JSON string
 with:
@@ -118,8 +128,9 @@ business barcode generator.
 ### PrinterDiscovery
 
 Responsible for locating candidate Bluetooth printers when a future discovery
-flow exists. The current diagnostic bridge lists paired devices only; operators
-pair Chiteng S1 and Urovo printers in Android Bluetooth settings first.
+flow exists. The current diagnostic bridge can search nearby Bluetooth devices,
+but operators still pair Chiteng S1 and Urovo printers in Android Bluetooth
+settings before connection.
 
 Responsibilities:
 
@@ -129,7 +140,6 @@ Responsibilities:
 
 Out of scope for the diagnostic bridge:
 
-- Device discovery implementation.
 - User-facing pairing UI.
 
 ### PrinterConnection
