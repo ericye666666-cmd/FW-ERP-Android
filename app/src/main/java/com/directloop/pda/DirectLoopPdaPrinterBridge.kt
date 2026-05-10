@@ -334,6 +334,26 @@ class DirectLoopPdaPrinterBridge(
         )
     }
 
+    @JavascriptInterface
+    @Synchronized
+    fun printS1RawTsplMinText(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+        return sendOneShotRawS1DiagnosticTspl(
+            protocol = S1_RAW_TSPL_MIN_TEXT_PROTOCOL,
+            command = buildS1RawTsplMinTextCommand(),
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printS1RawTsplBlackBox(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+        return sendOneShotRawS1DiagnosticTspl(
+            protocol = S1_RAW_TSPL_BLACK_BOX_PROTOCOL,
+            command = buildS1RawTsplBlackBoxCommand(),
+        )
+    }
+
     private fun printStoreItemLabelPreviewWithProtocol(
         payloadJson: String,
         protocol: String,
@@ -555,6 +575,86 @@ class DirectLoopPdaPrinterBridge(
         }
     }
 
+    private fun buildS1RawTsplMinTextCommand(): String {
+        val lines = listOf(
+            "SIZE 40 mm,30 mm",
+            "TEXT 100,150,\"TSS24.BF2\",0,1,1,\"CHI TENG TSPL MANUAL\"",
+            "PRINT 1,1",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildS1RawTsplBlackBoxCommand(): String {
+        val lines = listOf(
+            "SIZE 40 mm,30 mm",
+            "CLS",
+            "SPEED 2",
+            "DENSITY 12",
+            "DIRECTION 0",
+            "BAR 20,20,200,100",
+            "PRINT 1,1",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun sendOneShotRawS1DiagnosticTspl(
+        protocol: String,
+        command: String,
+    ): String {
+        lastProtocolTested = protocol
+        lastPrintResult = RESULT_FAILED
+
+        val target = previewPrintTargetOrFailure() ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+
+        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+
+        val bytes = command.toByteArray(Charset.forName("GBK"))
+        lastPreviewTransport = PREVIEW_TRANSPORT_RAW_TSPL_SPP
+        lastPreviewLabelSize = "40x30"
+        lastPreviewTsplCommand = command
+        lastPreviewTsplSentAt = timestamp()
+        lastPreviewTsplBytes = bytes.size
+        lastPreviewSdkOperations = emptyList()
+
+        return try {
+            connectSocket(
+                adapter = target.adapter,
+                selection = PrinterSelection(
+                    profile = DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL,
+                    address = selectedPrinterAddress,
+                    name = selectedPrinterName,
+                ),
+                bondedDevice = target.bondedDevice,
+            )
+            val stream = outputStream ?: throw IOException("Bluetooth SPP output stream is not available.")
+            stream.write(bytes)
+            stream.flush()
+            Thread.sleep(400L)
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            connectionStatus = STATUS_DISCONNECTED
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+        } catch (error: SecurityException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("Bluetooth permission denied while sending S1 raw TSPL diagnostic.").toString()
+        } catch (error: IOException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("S1 raw TSPL diagnostic send failed: ${error.message ?: "unknown error"}.").toString()
+        } catch (error: RuntimeException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("S1 raw TSPL diagnostic failed: ${error.message ?: "unknown error"}.").toString()
+        } finally {
+            closeSocket()
+        }
+    }
+
     private fun previewPrintTargetOrFailure(): PreviewPrintTarget? {
         if (selectedPrinterAddress.isBlank()) {
             previewPrintFailure(
@@ -696,6 +796,8 @@ class DirectLoopPdaPrinterBridge(
             .put("printStoreItemLabelPreviewCtplNoLabelMode")
             .put("printStoreItemLabelPreviewCtplBitmapDemo")
             .put("printStoreItemLabelPreviewRawTspl")
+            .put("printS1RawTsplMinText")
+            .put("printS1RawTsplBlackBox")
     }
 
     private fun tsplLines(command: String): JSONArray {
@@ -1226,6 +1328,8 @@ class DirectLoopPdaPrinterBridge(
         private const val STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE"
         private const val STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO"
         private const val STORE_ITEM_LABEL_PREVIEW_TSPL_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_TSPL"
+        private const val S1_RAW_TSPL_MIN_TEXT_PROTOCOL = "S1_RAW_TSPL_MIN_TEXT"
+        private const val S1_RAW_TSPL_BLACK_BOX_PROTOCOL = "S1_RAW_TSPL_BLACK_BOX"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE = "CTPL_SDK_NO_LABEL_MODE"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO = "CTPL_SDK_BITMAP_DEMO"
         private const val PREVIEW_TRANSPORT_RAW_TSPL_SPP = "RAW_TSPL_SPP"
