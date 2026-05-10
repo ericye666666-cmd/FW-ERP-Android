@@ -205,6 +205,10 @@ grep -q 'printUrovoK300StoreItemPreview(payloadJson)' "$README"
 grep -q 'printK300EscposMinText()' "$README"
 grep -q 'printK300CpclMinText()' "$README"
 grep -q 'printK300CpclCode128Test()' "$README"
+grep -q 'printK300CpclCode128WideTest()' "$README"
+grep -q 'printK300CpclCode128TallTest()' "$README"
+grep -q 'printK300CpclCode128QuietZoneTest()' "$README"
+grep -q 'printK300CpclCode128CompactTopTest()' "$README"
 grep -q 'printK300CpclStoreItemPreview(payloadJson)' "$README"
 grep -q 'printK300TsplMinText()' "$README"
 grep -q 'printK300TsplBlackBox()' "$README"
@@ -227,6 +231,10 @@ grep -q 'UROVO_PRINTER_MANAGER' "$README"
 grep -q 'K300_ESCPOS_MIN_TEXT' "$README"
 grep -q 'K300_CPCL_MIN_TEXT' "$README"
 grep -q 'K300_CPCL_CODE128_TEST' "$README"
+grep -q 'K300_CPCL_CODE128_WIDE_TEST' "$README"
+grep -q 'K300_CPCL_CODE128_TALL_TEST' "$README"
+grep -q 'K300_CPCL_CODE128_QUIET_ZONE_TEST' "$README"
+grep -q 'K300_CPCL_CODE128_COMPACT_TOP_TEST' "$README"
 grep -q 'K300_CPCL_STORE_ITEM_PREVIEW' "$README"
 grep -q 'K300_TSPL_MIN_TEXT' "$README"
 grep -q 'K300_TSPL_BLACK_BOX' "$README"
@@ -281,6 +289,10 @@ grep -q 'fun printUrovoK300StoreItemPreview' "$PRINTER_BRIDGE"
 grep -q 'fun printK300EscposMinText()' "$PRINTER_BRIDGE"
 grep -q 'fun printK300CpclMinText()' "$PRINTER_BRIDGE"
 grep -q 'fun printK300CpclCode128Test()' "$PRINTER_BRIDGE"
+grep -q 'fun printK300CpclCode128WideTest()' "$PRINTER_BRIDGE"
+grep -q 'fun printK300CpclCode128TallTest()' "$PRINTER_BRIDGE"
+grep -q 'fun printK300CpclCode128QuietZoneTest()' "$PRINTER_BRIDGE"
+grep -q 'fun printK300CpclCode128CompactTopTest()' "$PRINTER_BRIDGE"
 grep -q 'fun printK300CpclStoreItemPreview' "$PRINTER_BRIDGE"
 grep -q 'fun printK300TsplMinText()' "$PRINTER_BRIDGE"
 grep -q 'fun printK300TsplBlackBox()' "$PRINTER_BRIDGE"
@@ -304,6 +316,10 @@ grep -q 'UROVO_K300_STORE_ITEM_PREVIEW' "$PRINTER_BRIDGE"
 grep -q 'K300_ESCPOS_MIN_TEXT' "$PRINTER_BRIDGE"
 grep -q 'K300_CPCL_MIN_TEXT' "$PRINTER_BRIDGE"
 grep -q 'K300_CPCL_CODE128_TEST' "$PRINTER_BRIDGE"
+grep -q 'K300_CPCL_CODE128_WIDE_TEST' "$PRINTER_BRIDGE"
+grep -q 'K300_CPCL_CODE128_TALL_TEST' "$PRINTER_BRIDGE"
+grep -q 'K300_CPCL_CODE128_QUIET_ZONE_TEST' "$PRINTER_BRIDGE"
+grep -q 'K300_CPCL_CODE128_COMPACT_TOP_TEST' "$PRINTER_BRIDGE"
 grep -q 'K300_CPCL_STORE_ITEM_PREVIEW' "$PRINTER_BRIDGE"
 grep -q 'K300_TSPL_MIN_TEXT' "$PRINTER_BRIDGE"
 grep -q 'K300_TSPL_BLACK_BOX' "$PRINTER_BRIDGE"
@@ -424,15 +440,31 @@ grep -q 'byteArrayOf(0x1B, 0x40)' "$PRINTER_BRIDGE"
 grep -q 'write_escpos_min_text' "$PRINTER_BRIDGE"
 grep -q 'buildK300CpclMinTextCommand' "$PRINTER_BRIDGE"
 grep -q 'buildK300CpclCode128TestCommand' "$PRINTER_BRIDGE"
+grep -q 'buildK300CpclCode128WideTestCommand' "$PRINTER_BRIDGE"
+grep -q 'buildK300CpclCode128TallTestCommand' "$PRINTER_BRIDGE"
+grep -q 'buildK300CpclCode128QuietZoneTestCommand' "$PRINTER_BRIDGE"
+grep -q 'buildK300CpclCode128CompactTopTestCommand' "$PRINTER_BRIDGE"
 grep -q 'buildK300CpclStoreItemPreviewCommand' "$PRINTER_BRIDGE"
 grep -q 'buildK300TsplMinTextCommand' "$PRINTER_BRIDGE"
 grep -q 'buildK300TsplBlackBoxCommand' "$PRINTER_BRIDGE"
 grep -q 'K300 ESC/POS TEST' "$PRINTER_BRIDGE"
 grep -q 'K300 CPCL TEST' "$PRINTER_BRIDGE"
 grep -q 'CPCL CODE128 TEST' "$PRINTER_BRIDGE"
+grep -q 'CODE128 WIDE' "$PRINTER_BRIDGE"
+grep -q 'CODE128 TALL' "$PRINTER_BRIDGE"
+grep -q 'CODE128 QUIET' "$PRINTER_BRIDGE"
+grep -q 'CPCL SCAN TEST' "$PRINTER_BRIDGE"
 grep -q 'BARCODE 128 2 1 70 20 70 5261300000038' "$PRINTER_BRIDGE"
+grep -q 'BARCODE 128 3 1 90 15 55 5261300000038' "$PRINTER_BRIDGE"
+grep -q 'BARCODE 128 2 1 100 15 55 5261300000038' "$PRINTER_BRIDGE"
+grep -q 'BARCODE 128 2 1 85 35 60 5261300000038' "$PRINTER_BRIDGE"
+grep -q 'BARCODE 128 2 1 85 20 25 5261300000038' "$PRINTER_BRIDGE"
 grep -q 'BARCODE 128 2 1 70 20 105' "$PRINTER_BRIDGE"
 grep -q 'write_cpcl_code128_test' "$PRINTER_BRIDGE"
+grep -q 'write_cpcl_code128_wide_test' "$PRINTER_BRIDGE"
+grep -q 'write_cpcl_code128_tall_test' "$PRINTER_BRIDGE"
+grep -q 'write_cpcl_code128_quiet_zone_test' "$PRINTER_BRIDGE"
+grep -q 'write_cpcl_code128_compact_top_test' "$PRINTER_BRIDGE"
 grep -q 'write_cpcl_store_item_preview' "$PRINTER_BRIDGE"
 grep -q 'K300 TSPL TEST' "$PRINTER_BRIDGE"
 grep -q 'BAR 20,20,200,100' "$PRINTER_BRIDGE"
@@ -467,6 +499,10 @@ fi
 sed -n '/fun printK300EscposMinText()/,/fun printK300CpclMinText()/p' "$PRINTER_BRIDGE" | grep -q 'K300_ESCPOS_MIN_TEXT'
 sed -n '/fun printK300CpclMinText()/,/fun printK300TsplMinText()/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_MIN_TEXT'
 sed -n '/fun printK300CpclCode128Test()/,/fun printK300CpclStoreItemPreview/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_CODE128_TEST'
+sed -n '/fun printK300CpclCode128WideTest()/,/fun printK300CpclCode128TallTest()/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_CODE128_WIDE_TEST'
+sed -n '/fun printK300CpclCode128TallTest()/,/fun printK300CpclCode128QuietZoneTest()/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_CODE128_TALL_TEST'
+sed -n '/fun printK300CpclCode128QuietZoneTest()/,/fun printK300CpclCode128CompactTopTest()/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_CODE128_QUIET_ZONE_TEST'
+sed -n '/fun printK300CpclCode128CompactTopTest()/,/fun printK300CpclStoreItemPreview/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_CODE128_COMPACT_TOP_TEST'
 sed -n '/fun printK300CpclStoreItemPreview/,/fun printK300TsplMinText()/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_STORE_ITEM_PREVIEW'
 sed -n '/fun printK300CpclStoreItemPreview/,/fun printK300TsplMinText()/p' "$PRINTER_BRIDGE" | grep -q 'payloadJson'
 sed -n '/fun printK300TsplMinText()/,/fun printK300TsplBlackBox()/p' "$PRINTER_BRIDGE" | grep -q 'K300_TSPL_MIN_TEXT'
@@ -485,6 +521,10 @@ sed -n '/private fun runK300SppConnectionProbe/,/private fun sendOneShotK300SppD
 sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q '! 0 200 200 240 1'
 sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q 'PRINT'
 sed -n '/private fun buildK300CpclCode128TestCommand()/,/private fun buildK300CpclStoreItemPreviewCommand/p' "$PRINTER_BRIDGE" | grep -q 'BARCODE 128 2 1 70 20 70 5261300000038'
+sed -n '/private fun buildK300CpclCode128WideTestCommand()/,/private fun buildK300CpclCode128TallTestCommand/p' "$PRINTER_BRIDGE" | grep -q 'BARCODE 128 3 1 90 15 55 5261300000038'
+sed -n '/private fun buildK300CpclCode128TallTestCommand()/,/private fun buildK300CpclCode128QuietZoneTestCommand/p' "$PRINTER_BRIDGE" | grep -q 'BARCODE 128 2 1 100 15 55 5261300000038'
+sed -n '/private fun buildK300CpclCode128QuietZoneTestCommand()/,/private fun buildK300CpclCode128CompactTopTestCommand/p' "$PRINTER_BRIDGE" | grep -q 'BARCODE 128 2 1 85 35 60 5261300000038'
+sed -n '/private fun buildK300CpclCode128CompactTopTestCommand()/,/private fun buildK300CpclStoreItemPreviewCommand/p' "$PRINTER_BRIDGE" | grep -q 'BARCODE 128 2 1 85 20 25 5261300000038'
 sed -n '/private fun buildK300CpclStoreItemPreviewCommand/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q 'TEXT 7 0 20 50 KES'
 sed -n '/private fun buildK300CpclStoreItemPreviewCommand/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q 'BARCODE 128 2 1 70 20 105'
 sed -n '/private fun buildK300TsplMinTextCommand()/,/private fun buildK300TsplBlackBoxCommand()/p' "$PRINTER_BRIDGE" | grep -q 'TEXT 20,40,\\"TSS24.BF2\\",0,1,1,\\"K300 TSPL TEST\\"'
