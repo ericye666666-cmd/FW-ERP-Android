@@ -81,6 +81,9 @@ Supported bridge methods:
 - `disconnectPrinter()`
 - `printTestLabel(protocol)`
 - `printStoreItemLabelPreview(payloadJson)`
+- `printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)`
+- `printStoreItemLabelPreviewCtplBitmapDemo(payloadJson)`
+- `printStoreItemLabelPreviewRawTspl(payloadJson)`
 - `getLastPrintResult()`
 
 `getAppInfo()` is the non-printing bridge version probe used by FW-ERP login
@@ -99,7 +102,10 @@ and does not expose secrets, printer credentials, or business data:
     "connectPrinter",
     "disconnectPrinter",
     "printTestLabel",
-    "printStoreItemLabelPreview"
+    "printStoreItemLabelPreview",
+    "printStoreItemLabelPreviewCtplNoLabelMode",
+    "printStoreItemLabelPreviewCtplBitmapDemo",
+    "printStoreItemLabelPreviewRawTspl"
   ]
 }
 ```
@@ -169,21 +175,37 @@ it does not generate or transform STORE_ITEM barcodes. No batch printing is
 allowed, no FW-ERP print job is marked printed, and no sticker confirmation is
 written by Android.
 
-For the Chiteng S1 preview print path, Android uses the official CTPL SDK with
-`drawText` and `drawBarCode`, not the unstable raw TSPL/SPP or SDK bitmap
-paths. The SDK path sets label size, label paper mode, speed, density, customer
-text, one Code128 barcode, `print(1)`, and `execute()`.
+For Chiteng S1 preview diagnostics, Android exposes explicit one-label protocol
+variants instead of hiding everything behind one misleading success result:
+
+- `printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)` uses the CTPL SDK
+  with `clean`, `setSize`, `setPrintSpeed`, `setPrintDensity`, `drawText`,
+  `drawBarCode`, `print(1)`, and `execute`. It does not call `Label_Divide`,
+  `setPaperType`, or backpressure.
+- `printStoreItemLabelPreviewCtplBitmapDemo(payloadJson)` uses the CTPL SDK
+  single-bitmap demo sequence: `clean`, `setSize`, `drawBitmap(Rect(...))`,
+  `print(1)`, and `execute`. It does not call `Label_Divide`, `setPaperType`,
+  or backpressure.
+- `printStoreItemLabelPreviewRawTspl(payloadJson)` sends raw TSPL over
+  Bluetooth SPP using GBK bytes and CRLF line endings.
+
+The legacy `printStoreItemLabelPreview(payloadJson)` entry remains available for
+older FW-ERP bundles, but it now routes to the CTPL no-label-mode variant rather
+than the physically failed CTPL `Label_Divide` path.
 If a second preview request arrives while the previous label is likely still
 moving, the bridge returns `Printer is busy. Wait before printing again.`
 instead of queueing another feed.
 
 The latest `getPrinterStatus()` raw JSON includes preview-print diagnostics so
 the FW-ERP PDA diagnostics panel can prove which preview path was used:
-`last_protocol_tested` should be `STORE_ITEM_LABEL_PREVIEW_CTPL`,
-`last_preview_transport` should be `CTPL_SDK`, and
-`last_preview_sdk_operations` shows the official SDK operations prepared for the
-one-label preview. The legacy TSPL diagnostic fields remain present but are
-empty for the CTPL preview path.
+`last_protocol_tested` should be one of
+`STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE`,
+`STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO`, or
+`STORE_ITEM_LABEL_PREVIEW_TSPL`. `last_preview_transport` should be one of
+`CTPL_SDK_NO_LABEL_MODE`, `CTPL_SDK_BITMAP_DEMO`, or `RAW_TSPL_SPP`.
+`last_preview_sdk_operations` shows CTPL operations, while the TSPL variant
+also exposes `last_preview_tspl_command`, `last_preview_tspl_lines`, and
+`last_preview_tspl_bytes`.
 
 Required preview payload shape:
 
@@ -209,11 +231,14 @@ Required preview payload shape:
 Contract summary:
 
 - Adds `printStoreItemLabelPreview(payloadJson)`.
+- Adds `printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)`.
+- Adds `printStoreItemLabelPreviewCtplBitmapDemo(payloadJson)`.
+- Adds `printStoreItemLabelPreviewRawTspl(payloadJson)`.
 - Prints exactly one STORE_ITEM preview label.
 - Supports 60x40 and 40x30 gap labels.
 - Requires `machine_code` to be numeric and start with `5`.
 - Android only prints FW-ERP-provided barcode payload.
-- Sends raw TSPL over Bluetooth SPP for the Chiteng S1 preview path.
+- Sends raw TSPL only through the explicit raw TSPL diagnostic method.
 - No batch printing.
 - No print job is marked printed.
 - No sticker confirmation.

@@ -586,6 +586,26 @@ Expected behavior:
 - Do not generate STORE_ITEM barcodes in Android.
 - Do not expose batch printing in this PR.
 
+### Explicit S1 preview protocol variants
+
+Purpose: isolate physical Chiteng S1 behavior by testing each one-label preview
+protocol separately. The old CTPL `Label_Divide` STORE_ITEM preview path fed
+blank labels on real hardware and is no longer the default.
+
+- `printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)` uses CTPL SDK
+  commands without `setPaperType(PaperType.Label)`,
+  `setPrintMode(PrintMode.Label_Divide)`, or `setBackpressure(true)`.
+- `printStoreItemLabelPreviewCtplBitmapDemo(payloadJson)` uses the official
+  demo-style single bitmap sequence: `clean`, `setSize`, `drawBitmap`,
+  `print(1)`, and `execute`.
+- `printStoreItemLabelPreviewRawTspl(payloadJson)` sends raw TSPL over Bluetooth
+  SPP with GBK encoding and CRLF line endings.
+
+All three methods use the same one-label payload validation as
+`printStoreItemLabelPreview(payloadJson)`: `labels.length` must be exactly one,
+`machine_code` must be numeric and start with 5, and `barcode_value` must equal
+`machine_code`.
+
 ### `printStoreItemBatchDiagnostic(jsonPayload)`
 
 Purpose: test continuous printing using real payload shape without business
@@ -963,16 +983,16 @@ Recommended Android result shape:
   "selected_profile": "CHITENG_S1_OFFICIAL",
   "connection_status": "connected",
   "printer_online_status": "online",
-  "last_protocol_tested": "STORE_ITEM_LABEL_PREVIEW_CTPL",
-  "last_preview_transport": "CTPL_SDK",
+  "last_protocol_tested": "STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE",
+  "last_preview_transport": "CTPL_SDK_NO_LABEL_MODE",
   "last_print_result": "success",
   "last_error": ""
 }
 ```
 
-For preview diagnostics, `last_print_result=success` means the official CTPL SDK
-accepted/sent the one-label preview operation, not business-confirmed production
-print.
+For preview diagnostics, `last_print_result=success` means the bridge sent bytes
+or the official CTPL SDK accepted the one-label preview operation. It is not a
+physical print confirmation and never marks a business print job printed.
 
 ## Android Change Plan
 

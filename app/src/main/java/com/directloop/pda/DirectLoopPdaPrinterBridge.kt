@@ -20,6 +20,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.io.OutputStream
+import java.nio.charset.Charset
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -300,9 +301,47 @@ class DirectLoopPdaPrinterBridge(
     @JavascriptInterface
     @Synchronized
     fun printStoreItemLabelPreview(payloadJson: String): String {
+        return printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printStoreItemLabelPreviewCtplNoLabelMode(payloadJson: String): String {
+        return printStoreItemLabelPreviewWithProtocol(
+            payloadJson = payloadJson,
+            protocol = STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE_PROTOCOL,
+            printer = ::printOfficialStoreItemLabelPreviewCtplNoLabelMode,
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printStoreItemLabelPreviewCtplBitmapDemo(payloadJson: String): String {
+        return printStoreItemLabelPreviewWithProtocol(
+            payloadJson = payloadJson,
+            protocol = STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO_PROTOCOL,
+            printer = ::printOfficialStoreItemLabelPreviewCtplBitmapDemo,
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printStoreItemLabelPreviewRawTspl(payloadJson: String): String {
+        return printStoreItemLabelPreviewWithProtocol(
+            payloadJson = payloadJson,
+            protocol = STORE_ITEM_LABEL_PREVIEW_TSPL_PROTOCOL,
+            printer = ::sendRawStoreItemPreviewTspl,
+        )
+    }
+
+    private fun printStoreItemLabelPreviewWithProtocol(
+        payloadJson: String,
+        protocol: String,
+        printer: (ChitengS1OfficialPrinterClient.StoreItemLabelPreviewPayload) -> String,
+    ): String {
         if (!isTrustedPage()) return untrustedStatus().toString()
 
-        lastProtocolTested = STORE_ITEM_LABEL_PREVIEW_CTPL_PROTOCOL
+        lastProtocolTested = protocol
         lastPrintResult = RESULT_FAILED
 
         val payload = try {
@@ -315,12 +354,7 @@ class DirectLoopPdaPrinterBridge(
                 .toString()
         }
 
-        if (selectedProfile != DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL) {
-            return previewPrintFailure("STORE_ITEM preview labels require CHITENG_S1_OFFICIAL printer profile.")
-                .toString()
-        }
-
-        return printOfficialStoreItemLabelPreview(payload)
+        return printer(payload)
     }
 
     @JavascriptInterface
@@ -379,42 +413,24 @@ class DirectLoopPdaPrinterBridge(
         }
     }
 
-    private fun printOfficialStoreItemLabelPreview(
+    private fun printOfficialStoreItemLabelPreviewCtplNoLabelMode(
         payload: ChitengS1OfficialPrinterClient.StoreItemLabelPreviewPayload,
     ): String {
-        if (selectedPrinterAddress.isBlank()) {
-            return previewPrintFailure(
-                "No Bluetooth printer is selected. Select a paired Chiteng S1 printer before printing STORE_ITEM preview labels.",
-            ).toString()
-        }
+        previewPrintTargetOrFailure() ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
 
-        val adapter = bluetoothAdapter()
-            ?: return previewPrintFailure("Bluetooth adapter is not available on this device.").toString()
-        if (!ensureBluetoothConnectPermission()) return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
-        if (!isBluetoothEnabled(adapter)) {
-            return previewPrintFailure("Bluetooth is disabled. Enable Bluetooth before printing STORE_ITEM preview labels.").toString()
-        }
-        if (bondedDeviceForAddress(adapter, selectedPrinterAddress) == null) {
-            return previewPrintFailure("请先在 Android 系统蓝牙中完成配对后再连接。").toString()
-        }
-        val now = System.currentTimeMillis()
-        if (now < previewPrintBusyUntilMs) {
-            return previewPrintFailure("Printer is busy. Wait before printing again.").toString()
-        }
-
-        previewPrintBusyUntilMs = now + PREVIEW_PRINT_BUSY_WINDOW_MS
+        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
         chitengOfficialPrinterClient.disconnect()
         closeSocket()
         connectionStatus = STATUS_CONNECTING
 
         return try {
-            lastPreviewTransport = PREVIEW_TRANSPORT_CTPL_SDK
+            lastPreviewTransport = PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE
             lastPreviewLabelSize = payload.templateSize
             lastPreviewTsplCommand = ""
             lastPreviewTsplSentAt = ""
             lastPreviewTsplBytes = 0
-            lastPreviewSdkOperations = payload.toCtplOperationSummary()
-            val result = chitengOfficialPrinterClient.printStoreItemLabelPreview(
+            lastPreviewSdkOperations = payload.toCtplNoLabelModeOperationSummary()
+            val result = chitengOfficialPrinterClient.printStoreItemLabelPreviewCtplNoLabelMode(
                 address = selectedPrinterAddress,
                 name = selectedPrinterName,
                 payload = payload,
@@ -440,6 +456,136 @@ class DirectLoopPdaPrinterBridge(
             connectionStatus = STATUS_ERROR
             previewPrintFailure("STORE_ITEM preview CTPL print failed: ${error.message ?: "unknown error"}.").toString()
         }
+    }
+
+    private fun printOfficialStoreItemLabelPreviewCtplBitmapDemo(
+        payload: ChitengS1OfficialPrinterClient.StoreItemLabelPreviewPayload,
+    ): String {
+        previewPrintTargetOrFailure() ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+
+        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+
+        return try {
+            lastPreviewTransport = PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO
+            lastPreviewLabelSize = payload.templateSize
+            lastPreviewTsplCommand = ""
+            lastPreviewTsplSentAt = ""
+            lastPreviewTsplBytes = 0
+            lastPreviewSdkOperations = payload.toCtplBitmapDemoOperationSummary()
+            val result = chitengOfficialPrinterClient.printStoreItemLabelPreviewCtplBitmapDemo(
+                address = selectedPrinterAddress,
+                name = selectedPrinterName,
+                payload = payload,
+            )
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            syncOfficialSdkSummary()
+            if (result.success) {
+                connectionStatus = STATUS_CONNECTED
+                lastPrintResult = RESULT_SUCCESS
+                lastError = ""
+                statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+            } else {
+                previewPrintBusyUntilMs = 0L
+                connectionStatus = STATUS_ERROR
+                previewPrintFailure(result.message).toString()
+            }
+        } catch (error: SecurityException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("Bluetooth permission denied while printing STORE_ITEM preview bitmap through Chiteng official SDK.").toString()
+        } catch (error: RuntimeException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("STORE_ITEM preview CTPL bitmap print failed: ${error.message ?: "unknown error"}.").toString()
+        }
+    }
+
+    private fun sendRawStoreItemPreviewTspl(
+        payload: ChitengS1OfficialPrinterClient.StoreItemLabelPreviewPayload,
+    ): String {
+        val target = previewPrintTargetOrFailure() ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+
+        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+
+        val tspl = payload.legacyRawTsplForDiagnostics()
+        val bytes = tspl.toByteArray(Charset.forName("GBK"))
+        lastPreviewTransport = PREVIEW_TRANSPORT_RAW_TSPL_SPP
+        lastPreviewLabelSize = payload.templateSize
+        lastPreviewTsplCommand = tspl
+        lastPreviewTsplSentAt = timestamp()
+        lastPreviewTsplBytes = bytes.size
+        lastPreviewSdkOperations = emptyList()
+
+        return try {
+            connectSocket(
+                adapter = target.adapter,
+                selection = PrinterSelection(
+                    profile = DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL,
+                    address = selectedPrinterAddress,
+                    name = selectedPrinterName,
+                ),
+                bondedDevice = target.bondedDevice,
+            )
+            val stream = outputStream ?: throw IOException("Bluetooth SPP output stream is not available.")
+            stream.write(bytes)
+            stream.flush()
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            connectionStatus = STATUS_CONNECTED
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+        } catch (error: SecurityException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("Bluetooth permission denied while sending STORE_ITEM raw TSPL preview.").toString()
+        } catch (error: IOException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("STORE_ITEM preview raw TSPL send failed: ${error.message ?: "unknown error"}.").toString()
+        } catch (error: RuntimeException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("STORE_ITEM preview raw TSPL failed: ${error.message ?: "unknown error"}.").toString()
+        }
+    }
+
+    private fun previewPrintTargetOrFailure(): PreviewPrintTarget? {
+        if (selectedPrinterAddress.isBlank()) {
+            previewPrintFailure(
+                "No Bluetooth printer is selected. Select a paired Chiteng S1 printer before printing STORE_ITEM preview labels.",
+            )
+            return null
+        }
+
+        val adapter = bluetoothAdapter()
+        if (adapter == null) {
+            previewPrintFailure("Bluetooth adapter is not available on this device.")
+            return null
+        }
+        if (!ensureBluetoothConnectPermission()) {
+            previewPrintFailure(lastError.ifBlank { "Bluetooth permission is required. Grant Nearby devices permission and retry." })
+            return null
+        }
+        if (!isBluetoothEnabled(adapter)) {
+            previewPrintFailure("Bluetooth is disabled. Enable Bluetooth before printing STORE_ITEM preview labels.")
+            return null
+        }
+        val bondedDevice = bondedDeviceForAddress(adapter, selectedPrinterAddress)
+        if (bondedDevice == null) {
+            previewPrintFailure("请先在 Android 系统蓝牙中完成配对后再连接。")
+            return null
+        }
+        if (System.currentTimeMillis() < previewPrintBusyUntilMs) {
+            previewPrintFailure("Printer is busy. Wait before printing again.")
+            return null
+        }
+        return PreviewPrintTarget(adapter = adapter, bondedDevice = bondedDevice)
     }
 
     private fun guardedStatus(): JSONObject {
@@ -547,6 +693,9 @@ class DirectLoopPdaPrinterBridge(
             .put("disconnectPrinter")
             .put("printTestLabel")
             .put("printStoreItemLabelPreview")
+            .put("printStoreItemLabelPreviewCtplNoLabelMode")
+            .put("printStoreItemLabelPreviewCtplBitmapDemo")
+            .put("printStoreItemLabelPreviewRawTspl")
     }
 
     private fun tsplLines(command: String): JSONArray {
@@ -1026,6 +1175,11 @@ class DirectLoopPdaPrinterBridge(
         val name: String,
     )
 
+    private data class PreviewPrintTarget(
+        val adapter: BluetoothAdapter,
+        val bondedDevice: BluetoothDevice,
+    )
+
     private data class DiscoveredPrinter(
         val name: String,
         val address: String,
@@ -1069,8 +1223,12 @@ class DirectLoopPdaPrinterBridge(
         private const val SOURCE_PAIRED = "paired"
         private const val SOURCE_DISCOVERED = "discovered"
         private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
-        private const val STORE_ITEM_LABEL_PREVIEW_CTPL_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_CTPL"
-        private const val PREVIEW_TRANSPORT_CTPL_SDK = "CTPL_SDK"
+        private const val STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE"
+        private const val STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO"
+        private const val STORE_ITEM_LABEL_PREVIEW_TSPL_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_TSPL"
+        private const val PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE = "CTPL_SDK_NO_LABEL_MODE"
+        private const val PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO = "CTPL_SDK_BITMAP_DEMO"
+        private const val PREVIEW_TRANSPORT_RAW_TSPL_SPP = "RAW_TSPL_SPP"
         private const val PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"

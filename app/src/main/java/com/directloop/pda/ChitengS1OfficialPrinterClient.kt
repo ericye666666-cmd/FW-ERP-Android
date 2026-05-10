@@ -1,8 +1,13 @@
 package com.directloop.pda
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
+import android.graphics.Rect
+import android.graphics.Typeface
 import com.ctaiot.ctprinter.ctpl.CTPL
 import com.ctaiot.ctprinter.ctpl.Device
 import com.ctaiot.ctprinter.ctpl.RespCallback
@@ -157,6 +162,15 @@ class ChitengS1OfficialPrinterClient(
         name: String,
         payload: StoreItemLabelPreviewPayload,
     ): ChitengOfficialPrintResult {
+        return printStoreItemLabelPreviewCtplNoLabelMode(address, name, payload)
+    }
+
+    @Synchronized
+    fun printStoreItemLabelPreviewCtplNoLabelMode(
+        address: String,
+        name: String,
+        payload: StoreItemLabelPreviewPayload,
+    ): ChitengOfficialPrintResult {
         val connectResult = connect(address, name)
         if (!connectResult.success) return connectResult
 
@@ -166,8 +180,6 @@ class ChitengS1OfficialPrinterClient(
             sdk.clean()
             sdk
                 .setSize(payload.widthMm, payload.heightMm)
-                .setPaperType(PaperType.Label)
-                .setPrintMode(PrintMode.Label_Divide)
                 .setPrintSpeed(2)
                 .setPrintDensity(12)
 
@@ -182,6 +194,34 @@ class ChitengS1OfficialPrinterClient(
             failure("Bluetooth permission denied while printing STORE_ITEM preview through Chiteng official SDK.")
         } catch (error: RuntimeException) {
             failure("Chiteng official SDK STORE_ITEM preview print failed: ${error.message ?: "unknown error"}.")
+        }
+    }
+
+    @Synchronized
+    fun printStoreItemLabelPreviewCtplBitmapDemo(
+        address: String,
+        name: String,
+        payload: StoreItemLabelPreviewPayload,
+    ): ChitengOfficialPrintResult {
+        val connectResult = connect(address, name)
+        if (!connectResult.success) return connectResult
+
+        val sdk = sdkOrFailure() ?: return failure("Chiteng official CTPL SDK is not available.")
+
+        return try {
+            val bitmap = drawStoreItemPreviewBitmap(payload)
+            sdk.clean()
+            sdk
+                .setSize(payload.widthMm, payload.heightMm)
+                .drawBitmap(Rect(0, 0, bitmap.width, bitmap.height), bitmap, true, null)
+                .print(1)
+                .execute()
+
+            success("Chiteng official SDK bitmap STORE_ITEM preview label was sent.")
+        } catch (error: SecurityException) {
+            failure("Bluetooth permission denied while printing STORE_ITEM preview bitmap through Chiteng official SDK.")
+        } catch (error: RuntimeException) {
+            failure("Chiteng official SDK STORE_ITEM preview bitmap print failed: ${error.message ?: "unknown error"}.")
         }
     }
 
@@ -223,6 +263,74 @@ class ChitengS1OfficialPrinterClient(
                 label.machineCode,
             )
             .drawText(Point(96, 252), Rotate.Degree0, 1, 1, label.machineCode)
+    }
+
+    private fun drawStoreItemPreviewBitmap(payload: StoreItemLabelPreviewPayload): Bitmap {
+        val widthDots = payload.widthMm * DOTS_PER_MM_200_DPI
+        val heightDots = payload.heightMm * DOTS_PER_MM_200_DPI
+        val bitmap = Bitmap.createBitmap(widthDots, heightDots, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val monoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.CENTER
+        }
+        val label = payload.label
+        if (payload.templateSize == STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
+            textPaint.textSize = 24f
+            canvas.drawText(label.shortHeaderText(), 18f, 34f, textPaint)
+            textPaint.textSize = 46f
+            canvas.drawText("KES ${label.priceKes}", 18f, 86f, textPaint)
+            drawCode128BBarcode(canvas, label.machineCode, 20, 108, widthDots - 40, 68)
+            monoPaint.textSize = 22f
+            canvas.drawText(label.machineCode, widthDots / 2f, 214f, monoPaint)
+            return bitmap
+        }
+
+        textPaint.textSize = 28f
+        canvas.drawText(label.categoryShort, 24f, 44f, textPaint)
+        textPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText(label.grade, widthDots - 28f, 44f, textPaint)
+        textPaint.textAlign = Paint.Align.LEFT
+        textPaint.textSize = 54f
+        canvas.drawText("KES ${label.priceKes}", 24f, 112f, textPaint)
+        drawCode128BBarcode(canvas, label.machineCode, 32, 150, widthDots - 64, 90)
+        monoPaint.textSize = 24f
+        canvas.drawText(label.machineCode, widthDots / 2f, 282f, monoPaint)
+        return bitmap
+    }
+
+    private fun drawCode128BBarcode(canvas: Canvas, value: String, x: Int, y: Int, width: Int, height: Int) {
+        val codes = mutableListOf(CODE128_START_B)
+        value.forEach { char -> codes.add(char.code - 32) }
+        var checksum = CODE128_START_B
+        value.forEachIndexed { index, char ->
+            checksum += (char.code - 32) * (index + 1)
+        }
+        codes.add(checksum % 103)
+        codes.add(CODE128_STOP)
+
+        val patterns = codes.joinToString(separator = "") { CODE128_PATTERNS[it] }
+        val moduleCount = patterns.sumOf { it.digitToInt() }
+        val moduleWidth = (width.toFloat() / moduleCount.toFloat()).coerceAtLeast(1f)
+        val paint = Paint().apply {
+            color = Color.BLACK
+            isAntiAlias = false
+        }
+        var cursor = x.toFloat()
+        patterns.forEachIndexed { index, char ->
+            val barWidth = char.digitToInt() * moduleWidth
+            if (index % 2 == 0) {
+                canvas.drawRect(cursor, y.toFloat(), cursor + barWidth, (y + height).toFloat(), paint)
+            }
+            cursor += barWidth
+        }
     }
 
     @Synchronized
@@ -500,11 +608,13 @@ class ChitengS1OfficialPrinterClient(
         val label: StoreItemLabelRow,
     ) {
         fun toCtplOperationSummary(): List<String> {
+            return toCtplNoLabelModeOperationSummary()
+        }
+
+        fun toCtplNoLabelModeOperationSummary(): List<String> {
             return listOf(
                 "clean",
                 "setSize($widthMm,$heightMm)",
-                "setPaperType(PaperType.Label)",
-                "setPrintMode(PrintMode.Label_Divide)",
                 "setPrintSpeed(2)",
                 "setPrintDensity(12)",
                 "drawText(category_short)",
@@ -512,6 +622,16 @@ class ChitengS1OfficialPrinterClient(
                 "drawText(price_kes)",
                 "drawBarCode(CODE_128,machine_code)",
                 "drawText(machine_code)",
+                "print(1)",
+                "execute",
+            )
+        }
+
+        fun toCtplBitmapDemoOperationSummary(): List<String> {
+            return listOf(
+                "clean",
+                "setSize($widthMm,$heightMm)",
+                "drawBitmap(Rect(0,0,bitmap.width,bitmap.height),bitmap,true,null)",
                 "print(1)",
                 "execute",
             )
@@ -681,6 +801,25 @@ class ChitengS1OfficialPrinterClient(
 
     companion object {
         private const val TEST_CODE = "TEST123456"
+        private const val DOTS_PER_MM_200_DPI = 8
+        private const val CODE128_START_B = 104
+        private const val CODE128_STOP = 106
+        private val CODE128_PATTERNS = arrayOf(
+            "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312",
+            "132212", "221213", "221312", "231212", "112232", "122132", "122231", "113222",
+            "123122", "123221", "223211", "221132", "221231", "213212", "223112", "312131",
+            "311222", "321122", "321221", "312212", "322112", "322211", "212123", "212321",
+            "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313",
+            "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121",
+            "313121", "211331", "231131", "213113", "213311", "213131", "311123", "311321",
+            "331121", "312113", "312311", "332111", "314111", "221411", "431111", "111224",
+            "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114",
+            "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111",
+            "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112",
+            "421211", "212141", "214121", "412121", "111143", "111341", "131141", "114113",
+            "114311", "411113", "411311", "113141", "114131", "311141", "411131", "211412",
+            "211214", "211232", "2331112",
+        )
         private const val CONNECT_TIMEOUT_MS = 8000L
         private const val HEALTH_QUERY_TIMEOUT_MS = 1800L
         private const val UNKNOWN_CONNECT_CODE = -1
