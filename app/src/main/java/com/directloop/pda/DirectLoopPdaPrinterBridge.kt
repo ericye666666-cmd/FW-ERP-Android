@@ -425,6 +425,83 @@ class DirectLoopPdaPrinterBridge(
         )
     }
 
+    @JavascriptInterface
+    @Synchronized
+    fun printK300EscposMinText(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        val text = "K300 ESC/POS TEST\n5261300000038\n\n"
+        val bytes = byteArrayOf(0x1B, 0x40) + text.toByteArray(Charset.forName("GBK"))
+        return sendOneShotK300SppDiagnostic(
+            protocol = K300_ESCPOS_MIN_TEXT_PROTOCOL,
+            command = "",
+            bytes = bytes,
+            operations = listOf(
+                "open_spp_socket",
+                "write_escpos_min_text",
+                "flush",
+                "close_spp_socket",
+            ),
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300CpclMinText(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        val command = buildK300CpclMinTextCommand()
+        return sendOneShotK300SppDiagnostic(
+            protocol = K300_CPCL_MIN_TEXT_PROTOCOL,
+            command = command,
+            bytes = command.toByteArray(Charset.forName("GBK")),
+            operations = listOf(
+                "open_spp_socket",
+                "write_cpcl_min_text",
+                "flush",
+                "close_spp_socket",
+            ),
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300TsplMinText(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        val command = buildK300TsplMinTextCommand()
+        return sendOneShotK300SppDiagnostic(
+            protocol = K300_TSPL_MIN_TEXT_PROTOCOL,
+            command = command,
+            bytes = command.toByteArray(Charset.forName("GBK")),
+            operations = listOf(
+                "open_spp_socket",
+                "write_tspl_min_text",
+                "flush",
+                "close_spp_socket",
+            ),
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300TsplBlackBox(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        val command = buildK300TsplBlackBoxCommand()
+        return sendOneShotK300SppDiagnostic(
+            protocol = K300_TSPL_BLACK_BOX_PROTOCOL,
+            command = command,
+            bytes = command.toByteArray(Charset.forName("GBK")),
+            operations = listOf(
+                "open_spp_socket",
+                "write_tspl_black_box",
+                "flush",
+                "close_spp_socket",
+            ),
+        )
+    }
+
     private fun printStoreItemLabelPreviewWithProtocol(
         payloadJson: String,
         protocol: String,
@@ -736,6 +813,84 @@ class DirectLoopPdaPrinterBridge(
         return lines.joinToString("\r\n", postfix = "\r\n")
     }
 
+    private fun buildK300CpclMinTextCommand(): String {
+        val lines = listOf(
+            "! 0 200 200 240 1",
+            "TEXT 4 0 20 30 K300 CPCL TEST",
+            "TEXT 4 0 20 70 5261300000038",
+            "PRINT",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildK300TsplMinTextCommand(): String {
+        val lines = listOf(
+            "SIZE 40 mm,30 mm",
+            "CLS",
+            "TEXT 20,40,\"TSS24.BF2\",0,1,1,\"K300 TSPL TEST\"",
+            "TEXT 20,90,\"TSS24.BF2\",0,1,1,\"5261300000038\"",
+            "PRINT 1,1",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildK300TsplBlackBoxCommand(): String {
+        val lines = listOf(
+            "SIZE 40 mm,30 mm",
+            "CLS",
+            "DENSITY 12",
+            "BAR 20,20,200,100",
+            "PRINT 1,1",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun sendOneShotK300SppDiagnostic(
+        protocol: String,
+        command: String,
+        bytes: ByteArray,
+        operations: List<String>,
+    ): String {
+        selectedProfile = DirectLoopPrinterProfile.UROVO_K300
+        lastProtocolTested = protocol
+        lastPrintResult = RESULT_FAILED
+
+        val target = k300SppTargetOrFailure() ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+
+        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+        lastPreviewTransport = PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP
+        lastPreviewLabelSize = "40x30"
+        lastPreviewTsplCommand = command
+        lastPreviewTsplSentAt = timestamp()
+        lastPreviewTsplBytes = bytes.size
+        lastPreviewSdkOperations = operations
+
+        return try {
+            writeOneShotSppBytes(target.adapter, target.bondedDevice, bytes)
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            connectionStatus = STATUS_DISCONNECTED
+            printerOnlineStatus = ONLINE_UNKNOWN
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+        } catch (error: SecurityException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("Bluetooth permission denied while sending K300 Bluetooth SPP diagnostic.").toString()
+        } catch (error: IOException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("K300 Bluetooth SPP diagnostic send failed: ${error.message ?: "unknown error"}.").toString()
+        } catch (error: RuntimeException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("K300 Bluetooth SPP diagnostic failed: ${error.message ?: "unknown error"}.").toString()
+        }
+    }
+
     private fun sendOneShotRawS1DiagnosticTspl(
         protocol: String,
         command: String,
@@ -792,6 +947,42 @@ class DirectLoopPdaPrinterBridge(
         } finally {
             closeSocket()
         }
+    }
+
+    private fun k300SppTargetOrFailure(): PreviewPrintTarget? {
+        if (selectedPrinterAddress.isBlank()) {
+            previewPrintFailure(
+                "No Bluetooth printer is selected. Select a paired K300 printer before running K300 Bluetooth SPP diagnostics.",
+            )
+            return null
+        }
+
+        val adapter = bluetoothAdapter()
+        if (adapter == null) {
+            previewPrintFailure("Bluetooth adapter is not available on this device.")
+            return null
+        }
+        if (!ensureBluetoothConnectPermission()) {
+            previewPrintFailure(lastError.ifBlank { "Bluetooth permission is required. Grant Nearby devices permission and retry." })
+            return null
+        }
+        if (!isBluetoothEnabled(adapter)) {
+            previewPrintFailure("Bluetooth is disabled. Enable Bluetooth before running K300 Bluetooth SPP diagnostics.")
+            return null
+        }
+        val bondedDevice = bondedDeviceForAddress(adapter, selectedPrinterAddress)
+        if (bondedDevice == null) {
+            previewPrintFailure("请先在 Android 系统蓝牙中完成配对后再连接。")
+            return null
+        }
+        if (System.currentTimeMillis() < previewPrintBusyUntilMs) {
+            previewPrintFailure("Printer is busy. Wait before printing again.")
+            return null
+        }
+        if (selectedPrinterName.isBlank()) {
+            selectedPrinterName = safeDeviceName(bondedDevice)
+        }
+        return PreviewPrintTarget(adapter = adapter, bondedDevice = bondedDevice)
     }
 
     private fun previewPrintTargetOrFailure(): PreviewPrintTarget? {
@@ -945,6 +1136,10 @@ class DirectLoopPdaPrinterBridge(
             .put("printUrovoK300MinText")
             .put("printUrovoK300BlackBox")
             .put("printUrovoK300StoreItemPreview")
+            .put("printK300EscposMinText")
+            .put("printK300CpclMinText")
+            .put("printK300TsplMinText")
+            .put("printK300TsplBlackBox")
     }
 
     private fun tsplLines(command: String): JSONArray {
@@ -1271,6 +1466,37 @@ class DirectLoopPdaPrinterBridge(
     }
 
     @SuppressLint("MissingPermission")
+    private fun writeOneShotSppBytes(
+        adapter: BluetoothAdapter,
+        bondedDevice: BluetoothDevice,
+        bytes: ByteArray,
+    ) {
+        if (hasBluetoothScanPermission()) {
+            try {
+                adapter.cancelDiscovery()
+            } catch (_: SecurityException) {
+                // The one-shot SPP attempt can continue even if discovery cancellation is denied.
+            }
+        }
+
+        val device = adapter.getRemoteDevice(safeDeviceAddress(bondedDevice))
+        val diagnosticSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+        try {
+            diagnosticSocket.connect()
+            val stream = diagnosticSocket.outputStream
+            stream.write(bytes)
+            stream.flush()
+            Thread.sleep(400L)
+        } finally {
+            try {
+                diagnosticSocket.close()
+            } catch (_: IOException) {
+                // Closing a diagnostic socket is best-effort.
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     private fun bondedDeviceForAddress(adapter: BluetoothAdapter, address: String): BluetoothDevice? {
         return try {
             adapter.bondedDevices.firstOrNull { it.address == address }
@@ -1534,10 +1760,15 @@ class DirectLoopPdaPrinterBridge(
         private const val UROVO_K300_MIN_TEXT_PROTOCOL = "UROVO_K300_MIN_TEXT"
         private const val UROVO_K300_BLACK_BOX_PROTOCOL = "UROVO_K300_BLACK_BOX"
         private const val UROVO_K300_STORE_ITEM_PREVIEW_PROTOCOL = "UROVO_K300_STORE_ITEM_PREVIEW"
+        private const val K300_ESCPOS_MIN_TEXT_PROTOCOL = "K300_ESCPOS_MIN_TEXT"
+        private const val K300_CPCL_MIN_TEXT_PROTOCOL = "K300_CPCL_MIN_TEXT"
+        private const val K300_TSPL_MIN_TEXT_PROTOCOL = "K300_TSPL_MIN_TEXT"
+        private const val K300_TSPL_BLACK_BOX_PROTOCOL = "K300_TSPL_BLACK_BOX"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE = "CTPL_SDK_NO_LABEL_MODE"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO = "CTPL_SDK_BITMAP_DEMO"
         private const val PREVIEW_TRANSPORT_RAW_TSPL_SPP = "RAW_TSPL_SPP"
         private const val PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER = "UROVO_PRINTER_MANAGER"
+        private const val PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP = "K300_BLUETOOTH_SPP"
         private const val PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"

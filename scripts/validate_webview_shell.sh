@@ -202,6 +202,10 @@ grep -q 'getUrovoPrinterStatus()' "$README"
 grep -q 'printUrovoK300MinText()' "$README"
 grep -q 'printUrovoK300BlackBox()' "$README"
 grep -q 'printUrovoK300StoreItemPreview(payloadJson)' "$README"
+grep -q 'printK300EscposMinText()' "$README"
+grep -q 'printK300CpclMinText()' "$README"
+grep -q 'printK300TsplMinText()' "$README"
+grep -q 'printK300TsplBlackBox()' "$README"
 grep -q 'Prints exactly one STORE_ITEM preview label' "$README"
 grep -q 'last_preview_transport' "$README"
 grep -q 'last_preview_sdk_operations' "$README"
@@ -217,6 +221,11 @@ grep -q 'UROVO_K300_MIN_TEXT' "$README"
 grep -q 'UROVO_K300_BLACK_BOX' "$README"
 grep -q 'UROVO_K300_STORE_ITEM_PREVIEW' "$README"
 grep -q 'UROVO_PRINTER_MANAGER' "$README"
+grep -q 'K300_ESCPOS_MIN_TEXT' "$README"
+grep -q 'K300_CPCL_MIN_TEXT' "$README"
+grep -q 'K300_TSPL_MIN_TEXT' "$README"
+grep -q 'K300_TSPL_BLACK_BOX' "$README"
+grep -q 'K300_BLUETOOTH_SPP' "$README"
 grep -q 'android.device.PrinterManager' "$README"
 grep -q 'CHI TENG TSPL MANUAL' "$README"
 grep -q 'BAR 20,20,200,100' "$README"
@@ -260,6 +269,10 @@ grep -q 'fun getUrovoPrinterStatus()' "$PRINTER_BRIDGE"
 grep -q 'fun printUrovoK300MinText()' "$PRINTER_BRIDGE"
 grep -q 'fun printUrovoK300BlackBox()' "$PRINTER_BRIDGE"
 grep -q 'fun printUrovoK300StoreItemPreview' "$PRINTER_BRIDGE"
+grep -q 'fun printK300EscposMinText()' "$PRINTER_BRIDGE"
+grep -q 'fun printK300CpclMinText()' "$PRINTER_BRIDGE"
+grep -q 'fun printK300TsplMinText()' "$PRINTER_BRIDGE"
+grep -q 'fun printK300TsplBlackBox()' "$PRINTER_BRIDGE"
 grep -q 'printOfficialStoreItemLabelPreview' "$PRINTER_BRIDGE"
 grep -q 'STORE_ITEM_LABEL_PREVIEW' "$PRINTER_BRIDGE"
 grep -q 'lastPreviewTransport' "$PRINTER_BRIDGE"
@@ -276,9 +289,14 @@ grep -q 'S1_RAW_TSPL_BLACK_BOX' "$PRINTER_BRIDGE"
 grep -q 'UROVO_K300_MIN_TEXT' "$PRINTER_BRIDGE"
 grep -q 'UROVO_K300_BLACK_BOX' "$PRINTER_BRIDGE"
 grep -q 'UROVO_K300_STORE_ITEM_PREVIEW' "$PRINTER_BRIDGE"
+grep -q 'K300_ESCPOS_MIN_TEXT' "$PRINTER_BRIDGE"
+grep -q 'K300_CPCL_MIN_TEXT' "$PRINTER_BRIDGE"
+grep -q 'K300_TSPL_MIN_TEXT' "$PRINTER_BRIDGE"
+grep -q 'K300_TSPL_BLACK_BOX' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_RAW_TSPL_SPP' "$PRINTER_BRIDGE"
+grep -q 'PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP' "$PRINTER_BRIDGE"
 grep -q 'last_preview_transport' "$PRINTER_BRIDGE"
 grep -q 'last_preview_label_size' "$PRINTER_BRIDGE"
 grep -q 'last_preview_tspl_command' "$PRINTER_BRIDGE"
@@ -380,6 +398,15 @@ grep -q 'legacyRawTsplForDiagnostics' "$PRINTER_BRIDGE"
 grep -q 'buildS1RawTsplMinTextCommand' "$PRINTER_BRIDGE"
 grep -q 'buildS1RawTsplBlackBoxCommand' "$PRINTER_BRIDGE"
 grep -q 'sendOneShotRawS1DiagnosticTspl' "$PRINTER_BRIDGE"
+grep -q 'sendOneShotK300SppDiagnostic' "$PRINTER_BRIDGE"
+grep -q 'write_escpos_min_text' "$PRINTER_BRIDGE"
+grep -q 'buildK300CpclMinTextCommand' "$PRINTER_BRIDGE"
+grep -q 'buildK300TsplMinTextCommand' "$PRINTER_BRIDGE"
+grep -q 'buildK300TsplBlackBoxCommand' "$PRINTER_BRIDGE"
+grep -q 'K300 ESC/POS TEST' "$PRINTER_BRIDGE"
+grep -q 'K300 CPCL TEST' "$PRINTER_BRIDGE"
+grep -q 'K300 TSPL TEST' "$PRINTER_BRIDGE"
+grep -q 'BAR 20,20,200,100' "$PRINTER_BRIDGE"
 grep -q 'CHI TENG TSPL MANUAL' "$PRINTER_BRIDGE"
 grep -q 'BAR 20,20,200,100' "$PRINTER_BRIDGE"
 grep -q 'Thread.sleep(400L)' "$PRINTER_BRIDGE"
@@ -406,6 +433,19 @@ if awk '
 fi
 if grep -q 'GAPDETECT\|FORMFEED\|FEED' "$PRINTER_BRIDGE"; then
   echo "STORE_ITEM raw TSPL preview must not use feed or calibration commands." >&2
+  exit 1
+fi
+sed -n '/fun printK300EscposMinText()/,/fun printK300CpclMinText()/p' "$PRINTER_BRIDGE" | grep -q 'K300_ESCPOS_MIN_TEXT'
+sed -n '/fun printK300CpclMinText()/,/fun printK300TsplMinText()/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_MIN_TEXT'
+sed -n '/fun printK300TsplMinText()/,/fun printK300TsplBlackBox()/p' "$PRINTER_BRIDGE" | grep -q 'K300_TSPL_MIN_TEXT'
+sed -n '/fun printK300TsplBlackBox()/,/fun getLastPrintResult()/p' "$PRINTER_BRIDGE" | grep -q 'K300_TSPL_BLACK_BOX'
+sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q '! 0 200 200 240 1'
+sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q 'PRINT'
+sed -n '/private fun buildK300TsplMinTextCommand()/,/private fun buildK300TsplBlackBoxCommand()/p' "$PRINTER_BRIDGE" | grep -q 'TEXT 20,40,\\"TSS24.BF2\\",0,1,1,\\"K300 TSPL TEST\\"'
+sed -n '/private fun buildK300TsplBlackBoxCommand()/,/private fun sendOneShotK300SppDiagnostic/p' "$PRINTER_BRIDGE" | grep -q 'DENSITY 12'
+sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun sendOneShotK300SppDiagnostic/p' "$PRINTER_BRIDGE" | grep -Fq 'joinToString("\r\n", postfix = "\r\n")'
+if sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun sendOneShotK300SppDiagnostic/p' "$PRINTER_BRIDGE" | grep -q 'GAPDETECT\|FORMFEED\|FEED\|Label_Divide\|setBackpressure\|drawBitmap\|drawText\|drawBarCode'; then
+  echo "K300 SPP diagnostics must not use feed, calibration, CTPL drawing, Label_Divide, or backpressure." >&2
   exit 1
 fi
 if grep -q 'fun printStoreItemLabels' "$CHITENG_CLIENT"; then
