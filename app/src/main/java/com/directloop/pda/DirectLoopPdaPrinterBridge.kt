@@ -58,6 +58,11 @@ class DirectLoopPdaPrinterBridge(
     private var lastError = ""
     private var lastProtocolTested = ""
     private var lastPrintResult = RESULT_NONE
+    private var lastPreviewTransport = ""
+    private var lastPreviewLabelSize = ""
+    private var lastPreviewTsplCommand = ""
+    private var lastPreviewTsplSentAt = ""
+    private var lastPreviewTsplBytes = 0
     private var previewPrintBusyUntilMs = 0L
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
@@ -404,7 +409,13 @@ class DirectLoopPdaPrinterBridge(
         connectionStatus = STATUS_CONNECTING
 
         return try {
-            val bytes = payload.toRawTspl().toByteArray(TSPL_CHARSET)
+            val tsplCommand = payload.toRawTspl()
+            val bytes = tsplCommand.toByteArray(TSPL_CHARSET)
+            lastPreviewTransport = PREVIEW_TRANSPORT_RAW_TSPL_SPP
+            lastPreviewLabelSize = payload.templateSize
+            lastPreviewTsplCommand = tsplCommand
+            lastPreviewTsplSentAt = timestamp()
+            lastPreviewTsplBytes = bytes.size
             sendRawTsplOverSpp(adapter, bondedDevice, bytes)
             previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
             connectionStatus = STATUS_CONNECTED
@@ -512,6 +523,12 @@ class DirectLoopPdaPrinterBridge(
             .put("last_error", statusError)
             .put("last_protocol_tested", lastProtocolTested)
             .put("last_print_result", lastPrintResult)
+            .put("last_preview_transport", lastPreviewTransport)
+            .put("last_preview_label_size", lastPreviewLabelSize)
+            .put("last_preview_tspl_sent_at", lastPreviewTsplSentAt)
+            .put("last_preview_tspl_bytes", lastPreviewTsplBytes)
+            .put("last_preview_tspl_command", lastPreviewTsplCommand)
+            .put("last_preview_tspl_lines", tsplLines(lastPreviewTsplCommand))
     }
 
     private fun supportedAppInfoMethods(): JSONArray {
@@ -521,6 +538,15 @@ class DirectLoopPdaPrinterBridge(
             .put("disconnectPrinter")
             .put("printTestLabel")
             .put("printStoreItemLabelPreview")
+    }
+
+    private fun tsplLines(command: String): JSONArray {
+        return JSONArray().apply {
+            command
+                .split("\r\n")
+                .filter { it.isNotBlank() }
+                .forEach { line -> put(line) }
+        }
     }
 
     private fun refreshPrinterHealth(
@@ -1064,6 +1090,7 @@ class DirectLoopPdaPrinterBridge(
         private const val SOURCE_DISCOVERED = "discovered"
         private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
         private const val STORE_ITEM_LABEL_PREVIEW_TSPL_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_TSPL"
+        private const val PREVIEW_TRANSPORT_RAW_TSPL_SPP = "RAW_TSPL_SPP"
         private const val PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L
         private val TSPL_CHARSET: Charset = Charset.forName("GBK")
         private const val RESULT_NONE = "none"
