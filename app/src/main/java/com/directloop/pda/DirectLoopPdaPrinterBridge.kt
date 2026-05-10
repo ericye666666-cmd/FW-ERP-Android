@@ -277,6 +277,32 @@ class DirectLoopPdaPrinterBridge(
 
     @JavascriptInterface
     @Synchronized
+    fun printStoreItemLabelPreview(payloadJson: String): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        lastProtocolTested = STORE_ITEM_LABEL_PREVIEW_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+
+        val payload = try {
+            ChitengS1OfficialPrinterClient.StoreItemLabelPreviewPayload.fromJson(payloadJson)
+        } catch (error: JSONException) {
+            return previewPrintFailure("STORE_ITEM preview label payload is invalid: ${error.message ?: "invalid JSON"}.")
+                .toString()
+        } catch (error: IllegalArgumentException) {
+            return previewPrintFailure("STORE_ITEM preview label payload is invalid: ${error.message ?: "invalid payload"}.")
+                .toString()
+        }
+
+        if (selectedProfile != DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL) {
+            return previewPrintFailure("STORE_ITEM preview labels require CHITENG_S1_OFFICIAL printer profile.")
+                .toString()
+        }
+
+        return printOfficialStoreItemLabelPreview(payload)
+    }
+
+    @JavascriptInterface
+    @Synchronized
     fun getLastPrintResult(): String {
         return guardedStatus().toString()
     }
@@ -331,6 +357,49 @@ class DirectLoopPdaPrinterBridge(
         }
     }
 
+    private fun printOfficialStoreItemLabelPreview(
+        payload: ChitengS1OfficialPrinterClient.StoreItemLabelPreviewPayload,
+    ): String {
+        if (selectedPrinterAddress.isBlank()) {
+            return previewPrintFailure(
+                "No Bluetooth printer is selected. Select a paired Chiteng S1 printer before printing STORE_ITEM preview labels.",
+            ).toString()
+        }
+
+        val adapter = bluetoothAdapter()
+            ?: return previewPrintFailure("Bluetooth adapter is not available on this device.").toString()
+        if (!ensureBluetoothConnectPermission()) return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+        if (!isBluetoothEnabled(adapter)) {
+            return previewPrintFailure("Bluetooth is disabled. Enable Bluetooth before printing STORE_ITEM preview labels.").toString()
+        }
+        if (!chitengOfficialPrinterClient.isSdkAvailable()) {
+            return previewPrintFailure("Chiteng official CTPL SDK is not available in this build.").toString()
+        }
+        if (bondedDeviceForAddress(adapter, selectedPrinterAddress) == null) {
+            return previewPrintFailure("请先在 Android 系统蓝牙中完成配对后再连接。").toString()
+        }
+
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+
+        val result = chitengOfficialPrinterClient.printStoreItemLabelPreview(
+            address = selectedPrinterAddress,
+            name = selectedPrinterName,
+            payload = payload,
+        )
+
+        return if (result.success) {
+            connectionStatus = STATUS_CONNECTED
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            syncOfficialSdkSummary()
+            statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+        } else {
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure(result.message).toString()
+        }
+    }
+
     private fun guardedStatus(): JSONObject {
         if (!isTrustedPage()) return untrustedStatus()
         return statusJson(bridgeAvailable = true)
@@ -360,13 +429,25 @@ class DirectLoopPdaPrinterBridge(
         return statusJson(bridgeAvailable = true, errorOverride = message)
     }
 
+    private fun previewPrintFailure(message: String): JSONObject {
+        lastError = message
+        lastPrintResult = RESULT_FAILED
+        syncOfficialSdkSummary()
+        return statusJson(bridgeAvailable = true, errorOverride = message, refreshHealth = false)
+    }
+
     private fun statusJson(
         bridgeAvailable: Boolean,
         errorOverride: String? = null,
+        refreshHealth: Boolean = true,
     ): JSONObject {
         val adapter = bluetoothAdapter()
         val bluetoothEnabled = adapter?.let { isBluetoothEnabled(it) } ?: false
-        refreshPrinterHealth(bridgeAvailable, bluetoothEnabled)
+        if (refreshHealth) {
+            refreshPrinterHealth(bridgeAvailable, bluetoothEnabled)
+        } else {
+            syncOfficialSdkSummary()
+        }
         val pairedPrinters = if (bridgeAvailable && bluetoothEnabled && hasBluetoothConnectPermission()) {
             pairedPrinterArray(adapter)
         } else {
@@ -914,6 +995,7 @@ class DirectLoopPdaPrinterBridge(
         private const val SOURCE_PAIRED = "paired"
         private const val SOURCE_DISCOVERED = "discovered"
         private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
+        private const val STORE_ITEM_LABEL_PREVIEW_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW"
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"
         private const val RESULT_FAILED = "failed"

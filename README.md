@@ -21,8 +21,11 @@ should update those BuildConfig values instead of changing app logic.
 - Android does not duplicate ERP business logic.
 - Android does not call FW-ERP APIs directly yet.
 - Native scanner and offline queue will be separate future PRs.
-- Bluetooth printer production printing remains future work; this app only has a
-  Clerk PDA diagnostic bridge for paired-printer connection and test labels.
+- Bluetooth printer production printing remains future work; #19 only verifies a
+  one-label STORE_ITEM preview bridge.
+- Bluetooth printer batch production printing remains future work; this app has
+  a Clerk PDA diagnostic bridge for paired-printer connection/test labels and a
+  one-label STORE_ITEM preview bridge for Chiteng S1 verification.
 - Bluetooth printing architecture notes are in
   [docs/bluetooth-printing-plan.md](docs/bluetooth-printing-plan.md).
 
@@ -76,6 +79,7 @@ Supported bridge methods:
 - `connectPrinter(configOrAddress)`
 - `disconnectPrinter()`
 - `printTestLabel(protocol)`
+- `printStoreItemLabelPreview(payloadJson)`
 - `getLastPrintResult()`
 
 `getPrinterStatus()` also reports `discovery_status`,
@@ -134,6 +138,47 @@ does not read, update, or mark any FW-ERP web print job as printed.
 a Code128 barcode for `TEST123456`. It is still diagnostic-only: Android does
 not generate STORE_ITEM barcodes and does not mark any FW-ERP print job as
 printed.
+
+`printStoreItemLabelPreview(payloadJson)` is the first STORE_ITEM print bridge.
+It prints exactly one STORE_ITEM preview label from a FW-ERP-provided payload,
+supports 60x40 and 40x30 gap labels, and requires `machine_code` to be numeric
+and start with `5`. Android only prints the barcode value supplied by FW-ERP:
+it does not generate or transform STORE_ITEM barcodes. No batch printing is
+allowed, no FW-ERP print job is marked printed, and no sticker confirmation is
+written by Android.
+
+Required preview payload shape:
+
+```json
+{
+  "printer_profile": "CHITENG_S1_OFFICIAL",
+  "label_template_size": "60x40",
+  "label_width_mm": 60,
+  "label_height_mm": 40,
+  "print_mode": "preview_one",
+  "labels": [
+    {
+      "machine_code": "5261300000038",
+      "barcode_value": "5261300000038",
+      "price_kes": 410,
+      "category_short": "CARGO PANT",
+      "grade": "P"
+    }
+  ]
+}
+```
+
+Contract summary:
+
+- Adds `printStoreItemLabelPreview(payloadJson)`.
+- Prints exactly one STORE_ITEM preview label.
+- Supports 60x40 and 40x30 gap labels.
+- Requires `machine_code` to be numeric and start with `5`.
+- Android only prints FW-ERP-provided barcode payload.
+- No batch printing.
+- No print job is marked printed.
+- No sticker confirmation.
+- No barcode generation in Android.
 
 For `CHITENG_S1_OFFICIAL`, status polling does not rely on a previous connect
 success alone. The bridge uses the CTPL `queryPrintState()` response as a
@@ -202,6 +247,7 @@ not chosen over a real scan input.
 - No copied FW-ERP frontend files.
 - No duplicate Android API clients.
 - No STORE_ITEM production batch printing.
+- No STORE_ITEM batch bridge; only one-label preview printing is exposed.
 - No marking web print jobs as printed.
 - No FW-ERP backend status writeback from Android.
 - No Android-side pairing UI; unpaired discovered printers still need Android
