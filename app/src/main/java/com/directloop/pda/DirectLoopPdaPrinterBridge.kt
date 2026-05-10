@@ -29,6 +29,7 @@ import java.util.UUID
 enum class DirectLoopPrinterProfile {
     CHITENG_S1,
     CHITENG_S1_OFFICIAL,
+    UROVO_K300,
     UROVO,
     GENERIC,
     ;
@@ -55,6 +56,9 @@ class DirectLoopPdaPrinterBridge(
     private var officialSdkConnected = false
     private var officialSdkLastMessage = ""
     private var officialSdkLastError = ""
+    private var urovoPrinterAvailable = false
+    private var urovoLastStatusCode: Int? = null
+    private var urovoLastStatusText = ""
     private var lastError = ""
     private var lastProtocolTested = ""
     private var lastPrintResult = RESULT_NONE
@@ -68,6 +72,7 @@ class DirectLoopPdaPrinterBridge(
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
     private val chitengOfficialPrinterClient = ChitengS1OfficialPrinterClient(activity.application)
+    private val urovoK300PrinterManagerClient = UrovoK300PrinterManagerClient()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val discoveredPrintersByAddress = linkedMapOf<String, DiscoveredPrinter>()
     private var discoveryStatus = DISCOVERY_IDLE
@@ -188,6 +193,9 @@ class DirectLoopPdaPrinterBridge(
             parsePrinterSelection(configOrAddress)
         } catch (_: JSONException) {
             return fail("connectPrinter expects a Bluetooth MAC address or JSON string with profile, address, and name.").toString()
+        }
+        if (selection.profile == DirectLoopPrinterProfile.UROVO_K300) {
+            return connectUrovoK300(selection).toString()
         }
         if (selection.address.isBlank()) {
             return fail("connectPrinter requires a paired printer address or JSON config.").toString()
@@ -354,6 +362,69 @@ class DirectLoopPdaPrinterBridge(
         )
     }
 
+    @JavascriptInterface
+    @Synchronized
+    fun getUrovoPrinterStatus(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        selectedProfile = DirectLoopPrinterProfile.UROVO_K300
+        val result = urovoK300PrinterManagerClient.getStatus()
+        applyUrovoResult(result)
+        lastPreviewTransport = PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER
+        lastPreviewSdkOperations = result.operations
+        lastError = if (result.success) "" else result.message
+        return statusJson(bridgeAvailable = true, errorOverride = lastError, refreshHealth = false).toString()
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printUrovoK300MinText(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        return printUrovoK300Diagnostic(
+            protocol = UROVO_K300_MIN_TEXT_PROTOCOL,
+            labelSize = "40x30",
+            printer = { urovoK300PrinterManagerClient.printMinText() },
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printUrovoK300BlackBox(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        return printUrovoK300Diagnostic(
+            protocol = UROVO_K300_BLACK_BOX_PROTOCOL,
+            labelSize = "40x30",
+            printer = { urovoK300PrinterManagerClient.printBlackBox() },
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printUrovoK300StoreItemPreview(payloadJson: String): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        lastProtocolTested = UROVO_K300_STORE_ITEM_PREVIEW_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+
+        val payload = try {
+            UrovoK300PrinterManagerClient.StoreItemLabelPreviewPayload.fromJson(payloadJson)
+        } catch (error: JSONException) {
+            return previewPrintFailure("Urovo K300 STORE_ITEM preview payload is invalid: ${error.message ?: "invalid JSON"}.")
+                .toString()
+        } catch (error: IllegalArgumentException) {
+            return previewPrintFailure("Urovo K300 STORE_ITEM preview payload is invalid: ${error.message ?: "invalid payload"}.")
+                .toString()
+        }
+
+        return printUrovoK300Diagnostic(
+            protocol = UROVO_K300_STORE_ITEM_PREVIEW_PROTOCOL,
+            labelSize = payload.templateSize,
+            printer = { urovoK300PrinterManagerClient.printStoreItemPreview(payload) },
+        )
+    }
+
     private fun printStoreItemLabelPreviewWithProtocol(
         payloadJson: String,
         protocol: String,
@@ -388,6 +459,74 @@ class DirectLoopPdaPrinterBridge(
         stopPrinterDiscoveryInternal(bluetoothAdapter(), nextStatus = DISCOVERY_IDLE)
         chitengOfficialPrinterClient.disconnect()
         closeSocket()
+    }
+
+    private fun connectUrovoK300(selection: PrinterSelection): JSONObject {
+        selectedProfile = DirectLoopPrinterProfile.UROVO_K300
+        selectedPrinterAddress = selection.address
+        selectedPrinterName = selection.name.ifBlank { "Urovo K300" }
+        connectionStatus = STATUS_CONNECTING
+        lastError = ""
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+
+        val result = urovoK300PrinterManagerClient.getStatus()
+        applyUrovoResult(result)
+        lastPreviewTransport = PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER
+        lastPreviewSdkOperations = result.operations
+        lastError = if (result.success) "" else result.message
+        return statusJson(bridgeAvailable = true, errorOverride = lastError, refreshHealth = false)
+    }
+
+    private fun printUrovoK300Diagnostic(
+        protocol: String,
+        labelSize: String,
+        printer: () -> UrovoK300PrinterManagerClient.UrovoK300PrintResult,
+    ): String {
+        lastProtocolTested = protocol
+        lastPrintResult = RESULT_FAILED
+        selectedProfile = DirectLoopPrinterProfile.UROVO_K300
+
+        if (System.currentTimeMillis() < previewPrintBusyUntilMs) {
+            return previewPrintFailure("Printer is busy. Wait before printing again.").toString()
+        }
+
+        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+        lastPreviewTransport = PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER
+        lastPreviewLabelSize = labelSize
+        lastPreviewTsplCommand = ""
+        lastPreviewTsplSentAt = ""
+        lastPreviewTsplBytes = 0
+
+        return try {
+            val result = printer()
+            finishUrovoK300Diagnostic(result).toString()
+        } catch (error: RuntimeException) {
+            previewPrintBusyUntilMs = 0L
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure("Urovo K300 diagnostic failed: ${error.message ?: "unknown error"}.").toString()
+        }
+    }
+
+    private fun finishUrovoK300Diagnostic(
+        result: UrovoK300PrinterManagerClient.UrovoK300PrintResult,
+    ): JSONObject {
+        applyUrovoResult(result)
+        lastPreviewSdkOperations = result.operations
+
+        if (result.success) {
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            return statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false)
+        }
+
+        previewPrintBusyUntilMs = 0L
+        connectionStatus = STATUS_ERROR
+        return previewPrintFailure(result.message)
     }
 
     private fun printOfficialChitengTestLabel(): String {
@@ -748,8 +887,9 @@ class DirectLoopPdaPrinterBridge(
         }
 
         val statusError = errorOverride
-            ?: permissionError()
+            ?: if (selectedProfile == DirectLoopPrinterProfile.UROVO_K300) null else permissionError()
             ?: when {
+                selectedProfile == DirectLoopPrinterProfile.UROVO_K300 -> lastError
                 adapter == null -> "Bluetooth adapter is not available on this device."
                 !bluetoothEnabled -> "Bluetooth is disabled. Enable Bluetooth before testing a printer."
                 pairedPrinters.length() == 0 -> "No paired Bluetooth printers found. Pair Chiteng S1 or Urovo in Android Bluetooth settings first."
@@ -774,6 +914,9 @@ class DirectLoopPdaPrinterBridge(
             .put("official_sdk_connected", officialSdkConnected)
             .put("official_sdk_last_message", officialSdkLastMessage)
             .put("official_sdk_last_error", officialSdkLastError)
+            .put("urovo_printer_available", urovoPrinterAvailable)
+            .put("urovo_last_status_code", urovoLastStatusCode ?: JSONObject.NULL)
+            .put("urovo_last_status_text", urovoLastStatusText)
             .put("last_error", statusError)
             .put("last_protocol_tested", lastProtocolTested)
             .put("last_print_result", lastPrintResult)
@@ -798,6 +941,10 @@ class DirectLoopPdaPrinterBridge(
             .put("printStoreItemLabelPreviewRawTspl")
             .put("printS1RawTsplMinText")
             .put("printS1RawTsplBlackBox")
+            .put("getUrovoPrinterStatus")
+            .put("printUrovoK300MinText")
+            .put("printUrovoK300BlackBox")
+            .put("printUrovoK300StoreItemPreview")
     }
 
     private fun tsplLines(command: String): JSONArray {
@@ -822,6 +969,11 @@ class DirectLoopPdaPrinterBridge(
         syncOfficialSdkSummary()
         if (!bridgeAvailable) {
             printerOnlineStatus = ONLINE_UNKNOWN
+            return
+        }
+
+        if (selectedProfile == DirectLoopPrinterProfile.UROVO_K300) {
+            refreshUrovoPrinterHealth()
             return
         }
 
@@ -900,6 +1052,55 @@ class DirectLoopPdaPrinterBridge(
             printerHealthCheckedAt = timestamp()
         } else if (connectionStatus == STATUS_DISCONNECTED) {
             printerOnlineStatus = ONLINE_UNKNOWN
+        }
+    }
+
+    private fun refreshUrovoPrinterHealth() {
+        val result = urovoK300PrinterManagerClient.getStatus()
+        applyUrovoResult(result)
+        lastPreviewTransport = lastPreviewTransport.ifBlank { PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER }
+        if (lastProtocolTested.startsWith("UROVO_K300") || lastProtocolTested.isBlank()) {
+            lastPreviewSdkOperations = result.operations
+        }
+        lastError = if (result.success) "" else result.message
+    }
+
+    private fun applyUrovoResult(result: UrovoK300PrinterManagerClient.UrovoK300PrintResult) {
+        urovoPrinterAvailable = result.available
+        urovoLastStatusCode = result.statusCode
+        urovoLastStatusText = result.statusText
+        printerHealthCheckedAt = timestamp()
+
+        if (!result.available) {
+            connectionStatus = STATUS_ERROR
+            printerOnlineStatus = ONLINE_UNKNOWN
+            return
+        }
+
+        when (result.statusText) {
+            "ok" -> {
+                connectionStatus = STATUS_CONNECTED
+                printerOnlineStatus = ONLINE_ONLINE
+            }
+
+            "busy" -> {
+                connectionStatus = STATUS_CONNECTED
+                printerOnlineStatus = ONLINE_UNKNOWN
+            }
+
+            "out_of_paper",
+            "over_heat",
+            "under_voltage",
+            "error",
+            "driver_error" -> {
+                connectionStatus = STATUS_ERROR
+                printerOnlineStatus = ONLINE_ERROR
+            }
+
+            else -> {
+                connectionStatus = if (result.success) STATUS_CONNECTED else STATUS_ERROR
+                printerOnlineStatus = ONLINE_UNKNOWN
+            }
         }
     }
 
@@ -1330,9 +1531,13 @@ class DirectLoopPdaPrinterBridge(
         private const val STORE_ITEM_LABEL_PREVIEW_TSPL_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_TSPL"
         private const val S1_RAW_TSPL_MIN_TEXT_PROTOCOL = "S1_RAW_TSPL_MIN_TEXT"
         private const val S1_RAW_TSPL_BLACK_BOX_PROTOCOL = "S1_RAW_TSPL_BLACK_BOX"
+        private const val UROVO_K300_MIN_TEXT_PROTOCOL = "UROVO_K300_MIN_TEXT"
+        private const val UROVO_K300_BLACK_BOX_PROTOCOL = "UROVO_K300_BLACK_BOX"
+        private const val UROVO_K300_STORE_ITEM_PREVIEW_PROTOCOL = "UROVO_K300_STORE_ITEM_PREVIEW"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE = "CTPL_SDK_NO_LABEL_MODE"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO = "CTPL_SDK_BITMAP_DEMO"
         private const val PREVIEW_TRANSPORT_RAW_TSPL_SPP = "RAW_TSPL_SPP"
+        private const val PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER = "UROVO_PRINTER_MANAGER"
         private const val PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"

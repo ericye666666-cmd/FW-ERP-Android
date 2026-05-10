@@ -86,6 +86,10 @@ Supported bridge methods:
 - `printStoreItemLabelPreviewRawTspl(payloadJson)`
 - `printS1RawTsplMinText()`
 - `printS1RawTsplBlackBox()`
+- `getUrovoPrinterStatus()`
+- `printUrovoK300MinText()`
+- `printUrovoK300BlackBox()`
+- `printUrovoK300StoreItemPreview(payloadJson)`
 - `getLastPrintResult()`
 
 `getAppInfo()` is the non-printing bridge version probe used by FW-ERP login
@@ -109,18 +113,24 @@ and does not expose secrets, printer credentials, or business data:
     "printStoreItemLabelPreviewCtplBitmapDemo",
     "printStoreItemLabelPreviewRawTspl",
     "printS1RawTsplMinText",
-    "printS1RawTsplBlackBox"
+    "printS1RawTsplBlackBox",
+    "getUrovoPrinterStatus",
+    "printUrovoK300MinText",
+    "printUrovoK300BlackBox",
+    "printUrovoK300StoreItemPreview"
   ]
 }
 ```
 
 `getPrinterStatus()` also reports `discovery_status`,
 `discovered_printer_count`, `discovered_printers`, `printer_online_status`,
-`printer_health_checked_at`, and official Chiteng SDK health fields. Discovery
-uses Android Bluetooth Classic search, includes already paired printers,
-deduplicates by Bluetooth address, and times out after a short scan window.
-Unpaired discovered printers must be paired in Android system Bluetooth before
-`connectPrinter` can connect.
+`printer_health_checked_at`, official Chiteng SDK health fields, and Urovo K300
+PrinterManager fields such as `urovo_printer_available`,
+`urovo_last_status_code`, and `urovo_last_status_text`. Discovery uses Android
+Bluetooth Classic search, includes already paired printers, deduplicates by
+Bluetooth address, and times out after a short scan window. Unpaired discovered
+printers must be paired in Android system Bluetooth before Bluetooth-based
+profiles can connect.
 
 Paired and discovered devices are not treated as live printers. A paired device
 only means Android knows the bond; a discovered device only means Bluetooth saw
@@ -143,6 +153,7 @@ Supported profiles:
 
 - `CHITENG_S1`
 - `CHITENG_S1_OFFICIAL`
+- `UROVO_K300`
 - `UROVO`
 - `GENERIC`
 
@@ -212,18 +223,44 @@ If a second preview request arrives while the previous label is likely still
 moving, the bridge returns `Printer is busy. Wait before printing again.`
 instead of queueing another feed.
 
+For Urovo K300 diagnostics, Android uses `android.device.PrinterManager`
+through reflection so the debug APK still builds on non-Urovo CI machines. The
+Urovo profile does not depend on a Bluetooth SPP socket:
+
+- `getUrovoPrinterStatus()` calls PrinterManager `open`, `getStatus`, and
+  `close`, then updates `urovo_printer_available`, `urovo_last_status_code`,
+  and `urovo_last_status_text`.
+- `printUrovoK300MinText()` prints one 40x30 page using `setupPage(320,240)`,
+  `clearPage`, two `drawText` calls (`DIRECT LOOP`, `K300 TEXT TEST`),
+  `printPage(0)`, and `close`.
+- `printUrovoK300BlackBox()` prints one 40x30 page with a rectangle and thick
+  black diagonal using `drawLine`, then `printPage(0)`.
+- `printUrovoK300StoreItemPreview(payloadJson)` prints exactly one 40x30
+  STORE_ITEM preview label from FW-ERP payload data. It validates
+  `printer_profile = UROVO_K300`, one label only, numeric `machine_code`
+  starting with `5`, `barcode_value == machine_code`, and uses
+  `drawBarcode` with Code128 type `20`.
+
+Urovo status codes are surfaced as text: `PRNSTS_OK` -> `ok`,
+`PRNSTS_OUT_OF_PAPER` -> `out_of_paper`, `PRNSTS_OVER_HEAT` -> `over_heat`,
+`PRNSTS_UNDER_VOLTAGE` -> `under_voltage`, `PRNSTS_BUSY` -> `busy`,
+`PRNSTS_ERR` -> `error`, and `PRNSTS_ERR_DRIVER` -> `driver_error`. Success from
+these diagnostic methods only means the PrinterManager command returned without
+throwing; it does not mark a physical label or FW-ERP print job as complete.
+
 The latest `getPrinterStatus()` raw JSON includes preview-print diagnostics so
 the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `last_protocol_tested` should be one of
 `STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE`,
 `STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO`, or
 `STORE_ITEM_LABEL_PREVIEW_TSPL`. Minimal raw probes use
-`S1_RAW_TSPL_MIN_TEXT` and `S1_RAW_TSPL_BLACK_BOX`. `last_preview_transport`
-should be one of
-`CTPL_SDK_NO_LABEL_MODE`, `CTPL_SDK_BITMAP_DEMO`, or `RAW_TSPL_SPP`.
-`last_preview_sdk_operations` shows CTPL operations, while the TSPL variant
-also exposes `last_preview_tspl_command`, `last_preview_tspl_lines`, and
-`last_preview_tspl_bytes`.
+`S1_RAW_TSPL_MIN_TEXT`, `S1_RAW_TSPL_BLACK_BOX`, `UROVO_K300_MIN_TEXT`,
+`UROVO_K300_BLACK_BOX`, or `UROVO_K300_STORE_ITEM_PREVIEW`.
+`last_preview_transport` should be one of `CTPL_SDK_NO_LABEL_MODE`,
+`CTPL_SDK_BITMAP_DEMO`, `RAW_TSPL_SPP`, or `UROVO_PRINTER_MANAGER`.
+`last_preview_sdk_operations` shows CTPL or Urovo PrinterManager operations,
+while the TSPL variant also exposes `last_preview_tspl_command`,
+`last_preview_tspl_lines`, and `last_preview_tspl_bytes`.
 
 Required preview payload shape:
 
@@ -254,6 +291,10 @@ Contract summary:
 - Adds `printStoreItemLabelPreviewRawTspl(payloadJson)`.
 - Adds `printS1RawTsplMinText()`.
 - Adds `printS1RawTsplBlackBox()`.
+- Adds `getUrovoPrinterStatus()`.
+- Adds `printUrovoK300MinText()`.
+- Adds `printUrovoK300BlackBox()`.
+- Adds `printUrovoK300StoreItemPreview(payloadJson)`.
 - Prints exactly one STORE_ITEM preview label.
 - Supports 60x40 and 40x30 gap labels.
 - Requires `machine_code` to be numeric and start with `5`.
@@ -298,6 +339,9 @@ Bridge status responses include:
   "official_sdk_connected": false,
   "official_sdk_last_message": "",
   "official_sdk_last_error": "",
+  "urovo_printer_available": false,
+  "urovo_last_status_code": null,
+  "urovo_last_status_text": "",
   "last_error": "",
   "last_protocol_tested": "",
   "last_print_result": "none"
@@ -337,8 +381,9 @@ not chosen over a real scan input.
 - No Android-side pairing UI; unpaired discovered printers still need Android
   system Bluetooth pairing before connection.
 - No backend code.
-- No Zebra SDK, Honeywell SDK, Urovo SDK, CameraX scanner flow, POS logic,
-  production printing, or offline queue.
+- No bundled Zebra SDK, Honeywell SDK, Urovo SDK jar, CameraX scanner flow, POS
+  logic, production printing, or offline queue. Urovo K300 diagnostics call the
+  device-provided `android.device.PrinterManager` by reflection only.
 - No hardcoded secrets.
 - No APK/build outputs committed.
 
