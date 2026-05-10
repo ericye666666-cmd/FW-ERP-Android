@@ -147,11 +147,12 @@ it does not generate or transform STORE_ITEM barcodes. No batch printing is
 allowed, no FW-ERP print job is marked printed, and no sticker confirmation is
 written by Android.
 
-For the Chiteng S1 official SDK path, each preview print resets the CTPL command
-buffer, sets label/gap mode, draws one exact-size bitmap, and sends `print(1)`.
-The bridge deliberately does not enable CTPL backpressure for this one-label
-path. If a second preview request arrives while the previous label is likely
-still moving, the bridge returns `Printer is busy. Wait before printing again.`
+For the Chiteng S1 preview print path, Android sends raw TSPL bytes over a
+one-shot Bluetooth SPP socket instead of using CTPL bitmap drawing. The TSPL
+uses only `SIZE`, `CLS`, `SPEED`, `DENSITY`, `DIRECTION`, `TEXT`, `BARCODE`,
+and `PRINT 1,1`; every line ends with `\r\n` and the bytes are encoded as GBK.
+If a second preview request arrives while the previous label is likely still
+moving, the bridge returns `Printer is busy. Wait before printing again.`
 instead of queueing another feed.
 
 Required preview payload shape:
@@ -175,11 +176,6 @@ Required preview payload shape:
 }
 ```
 
-For physical positioning diagnostics only, the same one-label bridge accepts
-`"debug_template": "coordinate_test"` with a 40x30 `preview_one` payload. That
-diagnostic prints one bordered 40x30 coordinate label; it is not batch printing
-and does not change FW-ERP print-job state.
-
 Contract summary:
 
 - Adds `printStoreItemLabelPreview(payloadJson)`.
@@ -187,6 +183,7 @@ Contract summary:
 - Supports 60x40 and 40x30 gap labels.
 - Requires `machine_code` to be numeric and start with `5`.
 - Android only prints FW-ERP-provided barcode payload.
+- Sends raw TSPL over Bluetooth SPP for the Chiteng S1 preview path.
 - No batch printing.
 - No print job is marked printed.
 - No sticker confirmation.

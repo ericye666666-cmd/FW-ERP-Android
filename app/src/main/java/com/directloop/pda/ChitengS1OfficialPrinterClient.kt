@@ -1,13 +1,8 @@
 package com.directloop.pda
 
 import android.app.Application
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
-import android.graphics.Rect
-import android.graphics.Typeface
 import com.ctaiot.ctprinter.ctpl.CTPL
 import com.ctaiot.ctprinter.ctpl.Device
 import com.ctaiot.ctprinter.ctpl.RespCallback
@@ -25,23 +20,7 @@ import java.util.concurrent.TimeUnit
 private const val STORE_ITEM_PREVIEW_TEMPLATE_60X40 = "60x40"
 private const val STORE_ITEM_PREVIEW_TEMPLATE_40X30 = "40x30"
 private const val STORE_ITEM_PREVIEW_PRINT_MODE = "preview_one"
-private const val STORE_ITEM_PREVIEW_DEBUG_COORDINATE_TEST = "coordinate_test"
-private const val STORE_ITEM_LABEL_DOTS_PER_MM = 8
 private val STORE_ITEM_MACHINE_CODE_PATTERN = Regex("^\\d{8,32}$")
-private val CODE_128_PATTERNS = arrayOf(
-    "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212",
-    "221213", "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221",
-    "223211", "221132", "221231", "213212", "223112", "312131", "311222", "321122", "321221",
-    "312212", "322112", "322211", "212123", "212321", "232121", "111323", "131123", "131321",
-    "112313", "132113", "132311", "211313", "231113", "231311", "112133", "112331", "132131",
-    "113123", "113321", "133121", "313121", "211331", "231131", "213113", "213311", "213131",
-    "311123", "311321", "331121", "312113", "312311", "332111", "314111", "221411", "431111",
-    "111224", "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114",
-    "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111", "111242",
-    "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141",
-    "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311",
-    "113141", "114131", "311141", "411131", "211412", "211214", "211232", "2331112",
-)
 
 class ChitengS1OfficialPrinterClient(
     private val application: Application,
@@ -169,38 +148,6 @@ class ChitengS1OfficialPrinterClient(
             failure("Bluetooth permission denied while printing through Chiteng official SDK.")
         } catch (error: RuntimeException) {
             failure("Chiteng official SDK diagnostic print failed: ${error.message ?: "unknown error"}.")
-        }
-    }
-
-    @Synchronized
-    fun printStoreItemLabelPreview(
-        address: String,
-        name: String,
-        payload: StoreItemLabelPreviewPayload,
-    ): ChitengOfficialPrintResult {
-        val connectResult = connect(address, name)
-        if (!connectResult.success) return connectResult
-
-        val sdk = sdkOrFailure() ?: return failure("Chiteng official CTPL SDK is not available.")
-
-        return try {
-            sdk.clean()
-            sdk
-                .setSize(payload.widthMm, payload.heightMm)
-                .setPaperType(PaperType.Label)
-                .setPrintMode(PrintMode.Label_Divide)
-                .setPrintSpeed(2)
-                .setPrintDensity(12)
-            drawStoreItemPreviewLabel(sdk, payload)
-            sdk
-                .print(1)
-                .execute()
-
-            success("Chiteng official SDK STORE_ITEM preview label was sent.")
-        } catch (error: SecurityException) {
-            failure("Bluetooth permission denied while printing STORE_ITEM preview label through Chiteng official SDK.")
-        } catch (error: RuntimeException) {
-            failure("Chiteng official SDK STORE_ITEM preview print failed: ${error.message ?: "unknown error"}.")
         }
     }
 
@@ -350,198 +297,6 @@ class ChitengS1OfficialPrinterClient(
 
     fun lastSdkError(): String = lastError
 
-    private fun drawStoreItemPreviewLabel(
-        sdk: CTPL,
-        payload: StoreItemLabelPreviewPayload,
-    ) {
-        val bitmap = buildStoreItemPreviewBitmap(payload)
-        sdk.drawBitmap(Rect(0, 0, bitmap.width, bitmap.height), bitmap, true, null)
-    }
-
-    private fun buildStoreItemPreviewBitmap(payload: StoreItemLabelPreviewPayload): Bitmap {
-        if (payload.isCoordinateTest()) {
-            return buildCoordinateTestBitmap(payload)
-        }
-
-        val label = payload.label
-        val widthDots = payload.widthMm * STORE_ITEM_LABEL_DOTS_PER_MM
-        val heightDots = payload.heightMm * STORE_ITEM_LABEL_DOTS_PER_MM
-        val bitmap = Bitmap.createBitmap(widthDots, heightDots, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.WHITE)
-
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val regularPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            typeface = Typeface.MONOSPACE
-        }
-        val barcodePaint = Paint().apply {
-            color = Color.BLACK
-            style = Paint.Style.FILL
-            isAntiAlias = false
-        }
-
-        if (payload.templateSize == STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
-            drawTextToFit(canvas, "${label.categoryShort} / ${label.grade}", 18f, 28f, 284f, textPaint, 22f, 16f)
-            drawTextToFit(canvas, "KES ${label.priceKes}", 18f, 70f, 284f, textPaint, 36f, 24f)
-            drawCode128Barcode(canvas, label.machineCode, Rect(12, 88, widthDots - 12, 178), barcodePaint)
-            drawCenteredTextToFit(canvas, label.machineCode, widthDots / 2f, 218f, 296f, regularPaint, 24f, 16f)
-            return bitmap
-        }
-
-        drawTextToFit(canvas, label.categoryShort, 24f, 36f, 340f, textPaint, 28f, 18f)
-        drawTextToFit(canvas, label.grade, widthDots - 70f, 36f, 50f, textPaint, 28f, 18f)
-        drawTextToFit(canvas, "KES ${label.priceKes}", 24f, 100f, 432f, textPaint, 52f, 32f)
-        drawCode128Barcode(canvas, label.machineCode, Rect(24, 136, widthDots - 24, 244), barcodePaint)
-        drawCenteredTextToFit(canvas, label.machineCode, widthDots / 2f, 282f, 416f, regularPaint, 28f, 18f)
-        return bitmap
-    }
-
-    private fun buildCoordinateTestBitmap(payload: StoreItemLabelPreviewPayload): Bitmap {
-        val label = payload.label
-        val widthDots = payload.widthMm * STORE_ITEM_LABEL_DOTS_PER_MM
-        val heightDots = payload.heightMm * STORE_ITEM_LABEL_DOTS_PER_MM
-        val bitmap = Bitmap.createBitmap(widthDots, heightDots, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.WHITE)
-
-        val strokePaint = Paint().apply {
-            color = Color.BLACK
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            isAntiAlias = false
-        }
-        val fillPaint = Paint().apply {
-            color = Color.BLACK
-            style = Paint.Style.FILL
-            isAntiAlias = false
-        }
-        val textPaint = Paint().apply {
-            color = Color.BLACK
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textSize = 22f
-            isAntiAlias = false
-        }
-        val monoPaint = Paint().apply {
-            color = Color.BLACK
-            typeface = Typeface.MONOSPACE
-            textSize = 18f
-            textAlign = Paint.Align.CENTER
-            isAntiAlias = false
-        }
-
-        canvas.drawRect(2f, 2f, (widthDots - 3).toFloat(), (heightDots - 3).toFloat(), strokePaint)
-        val markerSize = 22f
-        canvas.drawRect(6f, 6f, 6f + markerSize, 6f + markerSize, fillPaint)
-        canvas.drawRect(widthDots - 6f - markerSize, 6f, widthDots - 6f, 6f + markerSize, fillPaint)
-        canvas.drawRect(6f, heightDots - 6f - markerSize, 6f + markerSize, heightDots - 6f, fillPaint)
-        canvas.drawRect(widthDots - 6f - markerSize, heightDots - 6f - markerSize, widthDots - 6f, heightDots - 6f, fillPaint)
-
-        canvas.drawText("TOP", 44f, 28f, textPaint)
-        canvas.drawText("MID", 44f, heightDots / 2f + 7f, textPaint)
-        canvas.drawText("BOT", 44f, heightDots - 16f, textPaint)
-        canvas.drawText(label.machineCode, widthDots / 2f, heightDots - 42f, monoPaint)
-
-        var x = widthDots - 116f
-        val top = heightDots / 2f - 34f
-        repeat(9) { index ->
-            val barWidth = if (index % 2 == 0) 6f else 3f
-            canvas.drawRect(x, top, x + barWidth, top + 68f, fillPaint)
-            x += barWidth + 5f
-        }
-
-        return bitmap
-    }
-
-    private fun drawTextToFit(
-        canvas: Canvas,
-        text: String,
-        x: Float,
-        baselineY: Float,
-        maxWidth: Float,
-        paint: Paint,
-        maxTextSize: Float,
-        minTextSize: Float,
-    ) {
-        paint.textAlign = Paint.Align.LEFT
-        paint.textSize = maxTextSize
-        while (paint.textSize > minTextSize && paint.measureText(text) > maxWidth) {
-            paint.textSize -= 1f
-        }
-        canvas.drawText(text, x, baselineY, paint)
-    }
-
-    private fun drawCenteredTextToFit(
-        canvas: Canvas,
-        text: String,
-        centerX: Float,
-        baselineY: Float,
-        maxWidth: Float,
-        paint: Paint,
-        maxTextSize: Float,
-        minTextSize: Float,
-    ) {
-        paint.textAlign = Paint.Align.CENTER
-        paint.textSize = maxTextSize
-        while (paint.textSize > minTextSize && paint.measureText(text) > maxWidth) {
-            paint.textSize -= 1f
-        }
-        canvas.drawText(text, centerX, baselineY, paint)
-    }
-
-    private fun drawCode128Barcode(canvas: Canvas, value: String, rect: Rect, paint: Paint) {
-        val codes = buildCode128Codes(value)
-        val totalModules = codes.sumOf { code ->
-            CODE_128_PATTERNS[code].sumOf { width -> width.digitToInt() }
-        }
-        val moduleWidth = maxOf(1, rect.width() / totalModules)
-        val barcodeWidth = totalModules * moduleWidth
-        var x = rect.left + ((rect.width() - barcodeWidth) / 2)
-        codes.forEach { code ->
-            CODE_128_PATTERNS[code].forEachIndexed { index, widthChar ->
-                val segmentWidth = widthChar.digitToInt() * moduleWidth
-                if (index % 2 == 0) {
-                    canvas.drawRect(x.toFloat(), rect.top.toFloat(), (x + segmentWidth).toFloat(), rect.bottom.toFloat(), paint)
-                }
-                x += segmentWidth
-            }
-        }
-    }
-
-    private fun buildCode128Codes(value: String): List<Int> {
-        val codes = mutableListOf<Int>()
-        if (value.all { it in '0'..'9' } && value.length >= 2) {
-            var index = 0
-            if (value.length % 2 == 0) {
-                codes += 105
-            } else {
-                codes += 104
-                codes += value[0].code - 32
-                if (value.length > 1) {
-                    codes += 99
-                }
-                index = 1
-            }
-            while (index + 1 < value.length) {
-                codes += value.substring(index, index + 2).toInt()
-                index += 2
-            }
-        } else {
-            codes += 104
-            value.forEach { char ->
-                codes += (char.code.coerceIn(32, 126) - 32)
-            }
-        }
-
-        val checksum = (codes.first() + codes.drop(1).mapIndexed { index, code -> code * (index + 1) }.sum()) % 103
-        codes += checksum
-        codes += 106
-        return codes
-    }
-
     private fun initializeSdk(sdk: CTPL) {
         if (initialized) return
 
@@ -669,9 +424,36 @@ class ChitengS1OfficialPrinterClient(
         val widthMm: Int,
         val heightMm: Int,
         val label: StoreItemLabelRow,
-        val debugTemplate: String,
     ) {
-        fun isCoordinateTest(): Boolean = debugTemplate == STORE_ITEM_PREVIEW_DEBUG_COORDINATE_TEST
+        fun toRawTspl(): String {
+            val lines = if (templateSize == STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
+                listOf(
+                    "SIZE 40 mm,30 mm",
+                    "CLS",
+                    "SPEED 2",
+                    "DENSITY 12",
+                    "DIRECTION 0",
+                    "TEXT 18,20,\"TSS24.BF2\",0,1,1,\"${label.categoryShort} / ${label.grade}\"",
+                    "TEXT 18,58,\"TSS24.BF2\",0,2,2,\"KES ${label.priceKes}\"",
+                    "BARCODE 20,105,\"128\",70,1,0,2,2,\"${label.machineCode}\"",
+                    "PRINT 1,1",
+                )
+            } else {
+                listOf(
+                    "SIZE 60 mm,40 mm",
+                    "CLS",
+                    "SPEED 2",
+                    "DENSITY 12",
+                    "DIRECTION 0",
+                    "TEXT 24,28,\"TSS24.BF2\",0,1,1,\"${label.categoryShort}\"",
+                    "TEXT 420,28,\"TSS24.BF2\",0,1,1,\"${label.grade}\"",
+                    "TEXT 24,82,\"TSS24.BF2\",0,2,2,\"KES ${label.priceKes}\"",
+                    "BARCODE 32,145,\"128\",90,1,0,2,2,\"${label.machineCode}\"",
+                    "PRINT 1,1",
+                )
+            }
+            return lines.joinToString(separator = "\r\n", postfix = "\r\n")
+        }
 
         companion object {
             fun fromJson(raw: String): StoreItemLabelPreviewPayload {
@@ -701,19 +483,6 @@ class ChitengS1OfficialPrinterClient(
                     }
 
                     else -> throw IllegalArgumentException("label_template_size must be 60x40 or 40x30.")
-                }
-
-                val debugTemplate = json.optString("debug_template").trim().lowercase(Locale.US)
-                if (debugTemplate.isNotBlank() && debugTemplate != STORE_ITEM_PREVIEW_DEBUG_COORDINATE_TEST) {
-                    throw IllegalArgumentException("debug_template must be coordinate_test when provided.")
-                }
-                if (debugTemplate == STORE_ITEM_PREVIEW_DEBUG_COORDINATE_TEST) {
-                    if (printMode != STORE_ITEM_PREVIEW_PRINT_MODE) {
-                        throw IllegalArgumentException("coordinate_test requires print_mode preview_one.")
-                    }
-                    if (templateSize != STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
-                        throw IllegalArgumentException("coordinate_test supports exactly one 40x30 label.")
-                    }
                 }
 
                 val labelsJson = json.optJSONArray("labels")
@@ -752,19 +521,30 @@ class ChitengS1OfficialPrinterClient(
                     label = StoreItemLabelRow(
                         machineCode = machineCode,
                         priceKes = priceKes,
-                        categoryShort = cleanLabelText(labelJson.optString("category_short"), 24, "ITEM"),
-                        grade = cleanLabelText(gradeValue, 8, "-"),
+                        categoryShort = requiredCleanLabelText(
+                            value = labelJson.optString("category_short"),
+                            maxLength = 24,
+                            errorMessage = "category_short is required.",
+                        ),
+                        grade = requiredCleanLabelText(
+                            value = gradeValue,
+                            maxLength = 8,
+                            errorMessage = "grade or pricing_type is required.",
+                        ),
                     ),
-                    debugTemplate = debugTemplate,
                 )
             }
 
-            private fun cleanLabelText(value: String, maxLength: Int, fallback: String): String {
+            private fun requiredCleanLabelText(value: String, maxLength: Int, errorMessage: String): String {
                 val cleaned = value
                     .trim()
+                    .replace(Regex("[\"\\r\\n]"), " ")
                     .replace(Regex("\\s+"), " ")
                     .take(maxLength)
-                return cleaned.ifBlank { fallback }
+                if (cleaned.isBlank()) {
+                    throw IllegalArgumentException(errorMessage)
+                }
+                return cleaned
             }
         }
     }

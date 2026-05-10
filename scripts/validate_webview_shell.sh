@@ -274,8 +274,13 @@ grep -q 'drawBarCode' "$CHITENG_CLIENT"
 grep -q 'CODE_128' "$CHITENG_CLIENT"
 grep -q 'StoreItemLabelPreviewPayload' "$CHITENG_CLIENT"
 grep -q 'StoreItemLabelRow' "$CHITENG_CLIENT"
-grep -q 'printStoreItemLabelPreview' "$CHITENG_CLIENT"
-grep -q 'drawStoreItemPreviewLabel' "$CHITENG_CLIENT"
+grep -q 'toRawTspl' "$CHITENG_CLIENT"
+grep -q 'SIZE 40 mm,30 mm' "$CHITENG_CLIENT"
+grep -q 'SIZE 60 mm,40 mm' "$CHITENG_CLIENT"
+grep -Fq 'BARCODE 20,105,\"128\",70,1,0,2,2' "$CHITENG_CLIENT"
+grep -Fq 'BARCODE 32,145,\"128\",90,1,0,2,2' "$CHITENG_CLIENT"
+grep -q 'PRINT 1,1' "$CHITENG_CLIENT"
+grep -Fq 'separator = "\r\n", postfix = "\r\n"' "$CHITENG_CLIENT"
 grep -q 'Preview print only supports exactly one STORE_ITEM label.' "$CHITENG_CLIENT"
 grep -q 'machine_code' "$CHITENG_CLIENT"
 grep -q 'barcode_value' "$CHITENG_CLIENT"
@@ -283,24 +288,19 @@ grep -q 'price_kes' "$CHITENG_CLIENT"
 grep -q 'category_short' "$CHITENG_CLIENT"
 grep -q 'label_template_size' "$CHITENG_CLIENT"
 grep -q 'startsWith("5")' "$CHITENG_CLIENT"
-grep -q 'debug_template' "$CHITENG_CLIENT"
-grep -q 'coordinate_test' "$CHITENG_CLIENT"
-grep -q 'setPaperType(PaperType.Label)' "$CHITENG_CLIENT"
-grep -q 'setPrintMode(PrintMode.Label_Divide)' "$CHITENG_CLIENT"
-grep -q 'print(1)' "$CHITENG_CLIENT"
-grep -q 'buildStoreItemPreviewBitmap' "$CHITENG_CLIENT"
-grep -q 'buildCoordinateTestBitmap' "$CHITENG_CLIENT"
-grep -q 'drawCode128Barcode' "$CHITENG_CLIENT"
-grep -q 'drawBitmap' "$CHITENG_CLIENT"
-grep -q 'STORE_ITEM_LABEL_PREVIEW_COORDINATE_TEST' "$PRINTER_BRIDGE"
+grep -q 'grade or pricing_type is required.' "$CHITENG_CLIENT"
+grep -q 'STORE_ITEM_LABEL_PREVIEW_TSPL' "$PRINTER_BRIDGE"
+grep -q 'Charset.forName("GBK")' "$PRINTER_BRIDGE"
+grep -q 'sendRawTsplOverSpp' "$PRINTER_BRIDGE"
+grep -q 'PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L' "$PRINTER_BRIDGE"
 grep -q 'Printer is busy. Wait before printing again.' "$PRINTER_BRIDGE"
 if awk '
-  /fun printStoreItemLabelPreview/ { in_preview = 1 }
-  in_preview && /fun verifyConnection/ { in_preview = 0 }
-  in_preview && /setBackpressure\(true\)/ { found = 1 }
+  /private fun printOfficialStoreItemLabelPreview/ { in_preview = 1 }
+  in_preview && /private fun guardedStatus/ { in_preview = 0 }
+  in_preview && /(setBackpressure|drawBitmap|Label_Divide|GAPDETECT|FORMFEED|FEED)/ { found = 1 }
   END { exit found ? 0 : 1 }
-' "$CHITENG_CLIENT" >/dev/null; then
-  echo "STORE_ITEM one-label preview must not enable CTPL backpressure; it is for multi-label continuous flows." >&2
+' "$PRINTER_BRIDGE" >/dev/null; then
+  echo "STORE_ITEM raw TSPL preview must not use CTPL bitmap, backpressure, calibration, feed, or Label_Divide." >&2
   exit 1
 fi
 if grep -q 'fun printStoreItemLabels' "$CHITENG_CLIENT"; then
