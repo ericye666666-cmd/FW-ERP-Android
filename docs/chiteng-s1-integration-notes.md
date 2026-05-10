@@ -643,19 +643,19 @@ The preview label must not print SDO, SDP, SDB, LPK, `transfer_no`,
 `pricing_batch_id`, `source_sdp`, `store_code`, `display_code`, QR code,
 multiple barcodes, or any internal source chain.
 
-PR #21 positioning note:
+Raw TSPL STORE_ITEM preview note:
 
-- CTPL `setSize(width, height)` uses millimeters.
-- CTPL `drawBitmap(Rect, Bitmap, ...)` uses Android point/pixel coordinates.
-- The official 40x30 bitmap demo uses a 320 x 240 bitmap at 203 dpi and
-  `Rect(0, 0, bitmap.getWidth(), bitmap.getHeight())`.
-- The one-label STORE_ITEM preview path sets `PaperType.Label` and
-  `PrintMode.Label_Divide` for gap labels.
-- The one-label path must not enable CTPL backpressure.
+- Chiteng TSPL manual states 200 dpi uses 8 dots per millimeter.
+- The one-label STORE_ITEM preview path sends raw TSPL over Bluetooth SPP.
+- Every TSPL command line must end with `\r\n`.
+- The raw TSPL is encoded with GBK before writing to the socket.
+- The raw TSPL path uses `SIZE`, `CLS`, `SPEED`, `DENSITY`, `DIRECTION`,
+  `TEXT`, `BARCODE`, and `PRINT 1,1`.
+- The raw TSPL preview path must not send `FEED`, `FORMFEED`, `GAPDETECT`,
+  calibration commands, CTPL backpressure, `Label_Divide`, or SDK bitmap
+  commands.
 - Rapid second-click preview requests should return a busy response instead of
   queueing another print while the previous label is still moving.
-- A diagnostic `"debug_template": "coordinate_test"` 40x30 payload can print
-  one bordered coordinate label for physical origin/clip mapping.
 
 ### 60x40 Standard Label
 
@@ -703,15 +703,20 @@ ASCII sketch:
 +----------------------------------------------------------+
 ```
 
-Coordinate suggestion at 203 dpi:
+Raw TSPL layout at 203 dpi:
 
-| Element | X | Y | Size |
-|---|---:|---:|---|
-| `category_short` | 24 | 36 | bitmap text, fit to width |
-| `grade` | 410 | 36 | bitmap text |
-| Price `KES 450` | 24 | 100 | large bitmap text |
-| Code128 barcode | 24 | 136 | height about 108 dots |
-| Machine code text | centered | 282 | bitmap text |
+```text
+SIZE 60 mm,40 mm\r\n
+CLS\r\n
+SPEED 2\r\n
+DENSITY 12\r\n
+DIRECTION 0\r\n
+TEXT 24,28,"TSS24.BF2",0,1,1,"{category_short}"\r\n
+TEXT 420,28,"TSS24.BF2",0,1,1,"{grade}"\r\n
+TEXT 24,82,"TSS24.BF2",0,2,2,"KES {price_kes}"\r\n
+BARCODE 32,145,"128",90,1,0,2,2,"{machine_code}"\r\n
+PRINT 1,1\r\n
+```
 
 Barcode recommendation:
 
@@ -719,29 +724,14 @@ Barcode recommendation:
 - Rotation: no rotation.
 - Minimum quiet zone: leave at least 20 dots left/right if possible.
 - Barcode height: start with 90 to 100 dots.
-- Print density: start with SDK density 10 to 12, tune on real paper.
+- Print density: start with TSPL `DENSITY 12`, tune on real paper.
 - Speed: start low, for example SDK speed 2, for better barcode quality.
 
 Paper / gap recommendation:
 
-- SDK: `setSize(60, 40)`.
-- SDK: `setPaperType(Label)`.
-- SDK: `setPrintMode(Label_Divide)` for gap labels.
-- Use the official CTPL bitmap path for Chiteng S1 verification.
-
-SDK command sketch:
-
-```text
-clean()
-setSize(60, 40)
-setPaperType(Label)
-setPrintMode(Label_Divide)
-setPrintSpeed(2)
-setPrintDensity(12)
-drawBitmap(Rect(0, 0, bitmap.width, bitmap.height), bitmap)
-print(1)
-execute()
-```
+- TSPL: `SIZE 60 mm,40 mm`.
+- TSPL lines must use CRLF endings.
+- Do not add feed, calibration, or gap-detect commands to this preview test.
 
 ### 40x30 Small Label
 
@@ -800,14 +790,19 @@ ASCII sketch:
 +--------------------------------------+
 ```
 
-Coordinate suggestion at 203 dpi:
+Raw TSPL layout at 203 dpi:
 
-| Element | X | Y | Size |
-|---|---:|---:|---|
-| `category_short / grade` | 18 | 28 | bitmap text, fit to width |
-| Price `KES 450` | 18 | 70 | large bitmap text |
-| Code128 barcode | 12 | 88 | height about 90 dots |
-| Machine code text | centered | 218 | bitmap text |
+```text
+SIZE 40 mm,30 mm\r\n
+CLS\r\n
+SPEED 2\r\n
+DENSITY 12\r\n
+DIRECTION 0\r\n
+TEXT 18,20,"TSS24.BF2",0,1,1,"{category_short} / {grade}"\r\n
+TEXT 18,58,"TSS24.BF2",0,2,2,"KES {price_kes}"\r\n
+BARCODE 20,105,"128",70,1,0,2,2,"{machine_code}"\r\n
+PRINT 1,1\r\n
+```
 
 Barcode recommendation:
 
@@ -819,11 +814,9 @@ Barcode recommendation:
 
 Paper / gap recommendation:
 
-- SDK: `setSize(40, 30)`.
-- SDK: `setPaperType(Label)`.
-- SDK: `setPrintMode(Label_Divide)` for gap labels.
-- If labels are continuous paper, use a separate explicit printer profile /
-  template mode and do not silently switch from gap labels.
+- TSPL: `SIZE 40 mm,30 mm`.
+- TSPL lines must use CRLF endings.
+- Do not add feed, calibration, or gap-detect commands to this preview test.
 
 ## Store Item Label Preview
 
@@ -957,7 +950,8 @@ Recommended validation:
 | `machine_code` | Required. Must be numeric, start with `5`, and be a STORE_ITEM product code. |
 | `barcode_value` | Required or defaults to `machine_code`. Must not be SDP/SDB/LPK/SDO. |
 | `price_kes` | Required for customer-visible label. |
-| `debug_template` | Optional `coordinate_test` for one 40x30 positioning diagnostic. |
+| `category_short` | Required for customer-visible label text. |
+| `grade` / `pricing_type` | Required for customer-visible label text. |
 
 Recommended Android result shape:
 
@@ -967,14 +961,14 @@ Recommended Android result shape:
   "selected_profile": "CHITENG_S1_OFFICIAL",
   "connection_status": "connected",
   "printer_online_status": "online",
-  "last_protocol_tested": "STORE_ITEM_LABEL_PREVIEW",
+  "last_protocol_tested": "STORE_ITEM_LABEL_PREVIEW_TSPL",
   "last_print_result": "success",
   "last_error": ""
 }
 ```
 
-For preview diagnostics, `last_print_result=success` means accepted by the
-SDK/write path, not business-confirmed production print.
+For preview diagnostics, `last_print_result=success` means raw TSPL bytes were
+written and flushed to the SPP socket, not business-confirmed production print.
 
 ## Android Change Plan
 
