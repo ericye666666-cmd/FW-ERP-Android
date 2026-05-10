@@ -643,13 +643,27 @@ The preview label must not print SDO, SDP, SDB, LPK, `transfer_no`,
 `pricing_batch_id`, `source_sdp`, `store_code`, `display_code`, QR code,
 multiple barcodes, or any internal source chain.
 
+PR #21 positioning note:
+
+- CTPL `setSize(width, height)` uses millimeters.
+- CTPL `drawBitmap(Rect, Bitmap, ...)` uses Android point/pixel coordinates.
+- The official 40x30 bitmap demo uses a 320 x 240 bitmap at 203 dpi and
+  `Rect(0, 0, bitmap.getWidth(), bitmap.getHeight())`.
+- The one-label STORE_ITEM preview path sets `PaperType.Label` and
+  `PrintMode.Label_Divide` for gap labels.
+- The one-label path must not enable CTPL backpressure.
+- Rapid second-click preview requests should return a busy response instead of
+  queueing another print while the previous label is still moving.
+- A diagnostic `"debug_template": "coordinate_test"` 40x30 payload can print
+  one bordered coordinate label for physical origin/clip mapping.
+
 ### 60x40 Standard Label
 
 Use case:
 
 - standard clothing item labels
-- full item traceability
-- price + category + grade + source SDP
+- customer/POS sales label
+- price + category + grade + one STORE_ITEM barcode
 
 Physical size:
 
@@ -662,8 +676,7 @@ Priority:
 
 1. Barcode scannability.
 2. Clear price.
-3. Traceability to source SDP.
-4. Clerk-readable category and pricing type.
+3. Clerk-readable category and pricing type.
 
 Recommended fields:
 
@@ -672,27 +685,21 @@ Recommended fields:
 | `STORE_ITEM machine_code` barcode | Yes | Large Code128 barcode. This is the POS-scannable product code. |
 | `machine_code` text | Yes | Human-readable below barcode. |
 | `price_kes` | Yes | Large, clear `KES xxx`. |
-| `display_code` | Yes if space allows | Small human reference. |
-| `category_main` / `category_sub` | Yes | Truncate to fit. |
+| `category_short` | Yes | Truncate to fit. |
 | `grade` / `pricing_type` | Yes | `P`, `S`, or `CUSTOM`. |
-| `store_code` | Yes | Example: `UTAWALA`. |
-| `source_sdp_display_code` | Yes | Traceability only, not POS barcode. |
-| `pricing_batch_id` | Yes | Example: `BATCH-01-P`. |
 
 ASCII sketch:
 
 ```text
 +----------------------------------------------------------+
-| DIRECT LOOP / FW-ERP                 KES 450             |
+| CARGO PANT                                      P        |
+|                                                          |
+| KES 450                                                  |
 |                                                          |
 |   ||||||||||||||||||||||||||||||||||||||||||||||||||     |
 |   |||||||||||||| STORE_ITEM machine_code |||||||||||     |
 |                                                          |
-|   5261290000014                                         |
-|   STOREITEM26129000001                                  |
-|                                                          |
-|   cargo pant  P                         UTAWALA         |
-|   SDP261290019                       BATCH-01-P         |
+|   5261300000038                                         |
 +----------------------------------------------------------+
 ```
 
@@ -700,15 +707,11 @@ Coordinate suggestion at 203 dpi:
 
 | Element | X | Y | Size |
 |---|---:|---:|---|
-| Header `DIRECT LOOP / FW-ERP` | 16 | 12 | SDK text scale 1, or `TSS24.BF2` |
-| Price `KES 450` | 330 | 12 | SDK text scale 2 where available; otherwise bitmap text |
-| Code128 barcode | 30 | 58 | height 92 dots, narrow 2, wide 2 or SDK default tuned by test |
-| Machine code text | 30 | 158 | SDK text scale 1 |
-| Display code | 30 | 186 | SDK text scale 1 |
-| Category + grade | 30 | 222 | SDK text scale 1 |
-| Store code | 330 | 222 | SDK text scale 1 |
-| Source SDP | 30 | 258 | SDK text scale 1 |
-| Batch id | 310 | 258 | SDK text scale 1 |
+| `category_short` | 24 | 36 | bitmap text, fit to width |
+| `grade` | 410 | 36 | bitmap text |
+| Price `KES 450` | 24 | 100 | large bitmap text |
+| Code128 barcode | 24 | 136 | height about 108 dots |
+| Machine code text | centered | 282 | bitmap text |
 
 Barcode recommendation:
 
@@ -724,28 +727,18 @@ Paper / gap recommendation:
 - SDK: `setSize(60, 40)`.
 - SDK: `setPaperType(Label)`.
 - SDK: `setPrintMode(Label_Divide)` for gap labels.
-- Raw TSPL fallback: `SIZE 60 mm,40 mm`, then official Chiteng text/barcode
-  commands with CRLF line endings.
+- Use the official CTPL bitmap path for Chiteng S1 verification.
 
 SDK command sketch:
 
 ```text
 clean()
-setBackpressure(true)
 setSize(60, 40)
 setPaperType(Label)
 setPrintMode(Label_Divide)
-setPrintDensity(10 or 12)
 setPrintSpeed(2)
-drawText(header)
-drawText(price)
-drawBarCode(CODE_128, barcode_value)
-drawText(machine_code)
-drawText(display_code)
-drawText(category + grade)
-drawText(store_code)
-drawText(source_sdp)
-drawText(pricing_batch_id)
+setPrintDensity(12)
+drawBitmap(Rect(0, 0, bitmap.width, bitmap.height), bitmap)
 print(1)
 execute()
 ```
@@ -758,7 +751,7 @@ Use case:
 - accessories
 - shoes and bags
 - low-price items
-- labels where source traceability must be minimized for space
+- compact customer/POS labels
 
 Physical size:
 
@@ -787,23 +780,23 @@ Optional / omitted fields:
 
 | Field | Decision |
 |---|---|
-| `display_code` | Optional; omit when barcode or price becomes cramped. |
-| full `source_sdp` | Omit by default. If required, use very short suffix only. |
+| `display_code` | Omit from the physical label. |
+| full `source_sdp` | Omit from the physical label. |
 | full category chain | Omit; use `category_short`. |
-| store code | Optional short text, omit if scan tests are poor. |
+| store code | Omit from the physical label. |
 | batch id | Omit from physical label; keep in print batch record. |
 
 ASCII sketch:
 
 ```text
 +--------------------------------------+
-| cargo P                 KES 450      |
+| CARGO PANT / P                       |
+| KES 450                              |
 |                                      |
 |  ||||||||||||||||||||||||||||||||    |
 |  || STORE_ITEM machine_code ||||     |
 |                                      |
-|  5261290000014                      |
-|  STOREITEM...00001   UTAWALA        |
+|  5261300000038                      |
 +--------------------------------------+
 ```
 
@@ -811,11 +804,10 @@ Coordinate suggestion at 203 dpi:
 
 | Element | X | Y | Size |
 |---|---:|---:|---|
-| `category_short grade` | 12 | 10 | SDK text scale 1 |
-| Price `KES 450` | 200 | 10 | SDK text scale 1 or 2 after fit test |
-| Code128 barcode | 20 | 54 | height 72 to 82 dots |
-| Machine code text | 20 | 138 | SDK text scale 1 |
-| Short display/store text | 20 | 168 | optional, small |
+| `category_short / grade` | 18 | 28 | bitmap text, fit to width |
+| Price `KES 450` | 18 | 70 | large bitmap text |
+| Code128 barcode | 12 | 88 | height about 90 dots |
+| Machine code text | centered | 218 | bitmap text |
 
 Barcode recommendation:
 
@@ -823,7 +815,7 @@ Barcode recommendation:
 - Rotation: no rotation initially.
 - Barcode height: start with 75 dots.
 - Width: keep quiet zones and reduce other text before shrinking barcode.
-- Do not add QR code on 40x30 unless a later real scan test proves enough space.
+- Do not add QR code on 40x30.
 
 Paper / gap recommendation:
 
@@ -842,12 +834,12 @@ Future FW-ERP Clerk PDA location:
 
 ```text
 店员端完成分批定价并生成 STORE_ITEM
--> 打印本批标签
+-> 打印一张预览标签
 -> 选择标签模板 60x40 / 40x30
 -> 显示真实打印预览
--> 点击 打印本批
--> Android 执行打印
--> 打印成功后允许 贴标确认
+-> 点击 打印一张预览标签
+-> Android 执行一张 preview_one 打印
+-> 不标记 printed / sticker_confirmed
 ```
 
 The page should be Chinese-first, button-heavy, and low-text. It should use
@@ -870,8 +862,8 @@ Middle preview card:
 
 - Render one visual label preview using the first real label in the batch.
 - Show real `STORE_ITEM machine_code` as barcode value.
-- Show price, category, grade/pricing type, store code, and source SDP according
-  to the selected template.
+- Show only price, category, grade/pricing type, one barcode, and machine code
+  according to the selected template.
 - If a field will be truncated or omitted on 40x30, show the preview exactly
   that way.
 
@@ -881,7 +873,7 @@ Bottom actions:
 |---|---|
 | `选择 60x40` | Saves template selection to current pricing batch / print batch. |
 | `选择 40x30` | Saves template selection to current pricing batch / print batch. |
-| `打印本批标签` | Disabled unless printer connected and labels exist. Later calls Android bridge. |
+| `打印一张预览标签` | Disabled unless printer connected and labels exist. Calls Android one-label bridge. |
 | `返回分批定价` | Return to pricing batch screen without clearing task state. |
 | `贴标确认` | Disabled until print succeeds. Not enabled by preview-only diagnostics. |
 
@@ -909,7 +901,7 @@ Print batch fields to persist later:
 label_template_size: "60x40" | "40x30"
 label_width_mm
 label_height_mm
-printer_profile: "CHITENG_S1"
+printer_profile: "CHITENG_S1_OFFICIAL"
 print_protocol: "official_sdk" | "official_tspl" | "esc"
 pricing_batch_id
 source_sdp_display_code
@@ -936,28 +928,18 @@ Example WebView to Android payload:
 
 ```json
 {
-  "printer_profile": "CHITENG_S1",
+  "printer_profile": "CHITENG_S1_OFFICIAL",
   "label_template_size": "60x40",
   "label_width_mm": 60,
   "label_height_mm": 40,
-  "print_mode": "diagnostic_preview",
-  "store_code": "UTAWALA",
-  "source_sdp_display_code": "SDP261290019",
-  "source_sdp_machine_code": "SDP261290019",
-  "pricing_batch_id": "BATCH-01-P",
+  "print_mode": "preview_one",
   "labels": [
     {
-      "display_code": "STOREITEM26129000001",
-      "machine_code": "5261290000014",
-      "barcode_value": "5261290000014",
-      "price_kes": 450,
-      "category_main": "pants",
-      "category_sub": "cargo pant",
-      "category_short": "cargo",
-      "grade": "P",
-      "pricing_type": "P",
-      "store_code": "UTAWALA",
-      "source_sdp": "SDP261290019"
+      "machine_code": "5261300000038",
+      "barcode_value": "5261300000038",
+      "price_kes": 410,
+      "category_short": "CARGO PANT",
+      "grade": "P"
     }
   ]
 }
@@ -967,42 +949,32 @@ Recommended validation:
 
 | Field | Rule |
 |---|---|
-| `printer_profile` | For S1 production path, must be `CHITENG_S1` or later `CHITENG_S1_OFFICIAL`. |
+| `printer_profile` | Must be `CHITENG_S1_OFFICIAL`. |
 | `label_template_size` | Must be `60x40` or `40x30`. |
 | `label_width_mm` / `label_height_mm` | Must match template. Reject inconsistent values. |
-| `print_mode` | Diagnostic APIs accept `diagnostic_preview`; production API later requires `production`. |
-| `labels` | Non-empty for printing. Preview API may accept exactly one label. |
-| `machine_code` | Required. Must be a STORE_ITEM product code. |
+| `print_mode` | Must be `preview_one` for the one-label preview bridge. |
+| `labels` | Must contain exactly one label. |
+| `machine_code` | Required. Must be numeric, start with `5`, and be a STORE_ITEM product code. |
 | `barcode_value` | Required or defaults to `machine_code`. Must not be SDP/SDB/LPK/SDO. |
 | `price_kes` | Required for customer-visible label. |
-| `pricing_batch_id` | Required for audit and retry grouping. |
+| `debug_template` | Optional `coordinate_test` for one 40x30 positioning diagnostic. |
 
 Recommended Android result shape:
 
 ```json
 {
-  "ok": true,
-  "printer_profile": "CHITENG_S1_OFFICIAL",
-  "print_protocol": "official_sdk",
-  "label_template_size": "60x40",
-  "print_mode": "diagnostic_preview",
-  "attempted_label_count": 1,
-  "printed_label_count": 1,
-  "results": [
-    {
-      "index": 0,
-      "display_code": "STOREITEM26129000001",
-      "machine_code": "5261290000014",
-      "write_status": "success",
-      "printer_status": "unknown"
-    }
-  ],
+  "bridge_available": true,
+  "selected_profile": "CHITENG_S1_OFFICIAL",
+  "connection_status": "connected",
+  "printer_online_status": "online",
+  "last_protocol_tested": "STORE_ITEM_LABEL_PREVIEW",
+  "last_print_result": "success",
   "last_error": ""
 }
 ```
 
-For diagnostics, `printed_label_count` means accepted by SDK/write path, not
-business-confirmed production print.
+For preview diagnostics, `last_print_result=success` means accepted by the
+SDK/write path, not business-confirmed production print.
 
 ## Android Change Plan
 
@@ -1103,8 +1075,8 @@ PR E: Clerk PDA贴标确认 and print status persistence.
    build outputs, or secrets.
 4. Do not commit SDK ZIP, PDFs, Demo source, APK, `.gradle`, `local.properties`,
    build outputs, or secrets.
-5. 60x40 should be the standard STORE_ITEM label with Code128 barcode, large
-   price, category/grade, store, source SDP, and batch.
+5. 60x40 should be the standard STORE_ITEM customer/POS label with Code128
+   barcode, large price, category, grade, and machine code only.
 6. 40x30 should be a compact label with Code128 barcode, price, short category,
    and grade; omit full source chain.
 7. The next real preview page should be implemented in FW-ERP, because it owns

@@ -283,12 +283,17 @@ grep -q 'price_kes' "$CHITENG_CLIENT"
 grep -q 'category_short' "$CHITENG_CLIENT"
 grep -q 'label_template_size' "$CHITENG_CLIENT"
 grep -q 'startsWith("5")' "$CHITENG_CLIENT"
+grep -q 'debug_template' "$CHITENG_CLIENT"
+grep -q 'coordinate_test' "$CHITENG_CLIENT"
 grep -q 'setPaperType(PaperType.Label)' "$CHITENG_CLIENT"
 grep -q 'setPrintMode(PrintMode.Label_Divide)' "$CHITENG_CLIENT"
 grep -q 'print(1)' "$CHITENG_CLIENT"
 grep -q 'buildStoreItemPreviewBitmap' "$CHITENG_CLIENT"
+grep -q 'buildCoordinateTestBitmap' "$CHITENG_CLIENT"
 grep -q 'drawCode128Barcode' "$CHITENG_CLIENT"
 grep -q 'drawBitmap' "$CHITENG_CLIENT"
+grep -q 'STORE_ITEM_LABEL_PREVIEW_COORDINATE_TEST' "$PRINTER_BRIDGE"
+grep -q 'Printer is busy. Wait before printing again.' "$PRINTER_BRIDGE"
 if awk '
   /fun printStoreItemLabelPreview/ { in_preview = 1 }
   in_preview && /fun verifyConnection/ { in_preview = 0 }
