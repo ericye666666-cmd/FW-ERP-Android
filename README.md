@@ -90,6 +90,10 @@ Supported bridge methods:
 - `printUrovoK300MinText()`
 - `printUrovoK300BlackBox()`
 - `printUrovoK300StoreItemPreview(payloadJson)`
+- `printK300EscposMinText()`
+- `printK300CpclMinText()`
+- `printK300TsplMinText()`
+- `printK300TsplBlackBox()`
 - `getLastPrintResult()`
 
 `getAppInfo()` is the non-printing bridge version probe used by FW-ERP login
@@ -117,7 +121,11 @@ and does not expose secrets, printer credentials, or business data:
     "getUrovoPrinterStatus",
     "printUrovoK300MinText",
     "printUrovoK300BlackBox",
-    "printUrovoK300StoreItemPreview"
+    "printUrovoK300StoreItemPreview",
+    "printK300EscposMinText",
+    "printK300CpclMinText",
+    "printK300TsplMinText",
+    "printK300TsplBlackBox"
   ]
 }
 ```
@@ -248,6 +256,34 @@ Urovo status codes are surfaced as text: `PRNSTS_OK` -> `ok`,
 these diagnostic methods only means the PrinterManager command returned without
 throwing; it does not mark a physical label or FW-ERP print job as complete.
 
+For external Urovo K300 printers that appear as paired Bluetooth Classic devices
+but do not expose `android.device.PrinterManager`, Android also exposes
+one-shot Bluetooth SPP protocol probes. These use the selected paired printer
+address, cancel discovery when permission allows, open an RFCOMM socket with
+UUID `00001101-0000-1000-8000-00805F9B34FB`, write bytes, flush, wait briefly,
+and close the socket. They do not keep a socket open and do not claim physical
+print success:
+
+- `printK300EscposMinText()` sends ESC/POS bytes (`ESC @`, `K300 ESC/POS TEST`,
+  `5261300000038`, and blank lines). It reports
+  `K300_ESCPOS_MIN_TEXT`, `K300_BLUETOOTH_SPP`, an empty
+  `last_preview_tspl_command`, and operations including
+  `write_escpos_min_text`.
+- `printK300CpclMinText()` sends CPCL with CRLF endings:
+  `! 0 200 200 240 1`, two `TEXT` rows (`K300 CPCL TEST` and
+  `5261300000038`), and `PRINT`.
+- `printK300TsplMinText()` sends TSPL with CRLF endings:
+  `SIZE 40 mm,30 mm`, `CLS`, two `TEXT` rows (`K300 TSPL TEST` and
+  `5261300000038`), and `PRINT 1,1`.
+- `printK300TsplBlackBox()` sends TSPL with CRLF endings:
+  `SIZE 40 mm,30 mm`, `CLS`, `DENSITY 12`, `BAR 20,20,200,100`, and
+  `PRINT 1,1`.
+
+All K300 Bluetooth SPP probes use GBK-compatible bytes for text commands and
+set `last_preview_tspl_bytes` to the actual byte count written. Success only
+means bytes were written and flushed to Bluetooth SPP; it does not set
+`printer_online_status = online`.
+
 The latest `getPrinterStatus()` raw JSON includes preview-print diagnostics so
 the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `last_protocol_tested` should be one of
@@ -255,12 +291,15 @@ the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO`, or
 `STORE_ITEM_LABEL_PREVIEW_TSPL`. Minimal raw probes use
 `S1_RAW_TSPL_MIN_TEXT`, `S1_RAW_TSPL_BLACK_BOX`, `UROVO_K300_MIN_TEXT`,
-`UROVO_K300_BLACK_BOX`, or `UROVO_K300_STORE_ITEM_PREVIEW`.
+`UROVO_K300_BLACK_BOX`, `UROVO_K300_STORE_ITEM_PREVIEW`,
+`K300_ESCPOS_MIN_TEXT`, `K300_CPCL_MIN_TEXT`, `K300_TSPL_MIN_TEXT`, or
+`K300_TSPL_BLACK_BOX`.
 `last_preview_transport` should be one of `CTPL_SDK_NO_LABEL_MODE`,
-`CTPL_SDK_BITMAP_DEMO`, `RAW_TSPL_SPP`, or `UROVO_PRINTER_MANAGER`.
-`last_preview_sdk_operations` shows CTPL or Urovo PrinterManager operations,
-while the TSPL variant also exposes `last_preview_tspl_command`,
-`last_preview_tspl_lines`, and `last_preview_tspl_bytes`.
+`CTPL_SDK_BITMAP_DEMO`, `RAW_TSPL_SPP`, `UROVO_PRINTER_MANAGER`, or
+`K300_BLUETOOTH_SPP`. `last_preview_sdk_operations` shows CTPL, Urovo
+PrinterManager, or K300 SPP write operations, while raw command variants also
+expose `last_preview_tspl_command`, `last_preview_tspl_lines`, and
+`last_preview_tspl_bytes`.
 
 Required preview payload shape:
 
@@ -295,6 +334,10 @@ Contract summary:
 - Adds `printUrovoK300MinText()`.
 - Adds `printUrovoK300BlackBox()`.
 - Adds `printUrovoK300StoreItemPreview(payloadJson)`.
+- Adds `printK300EscposMinText()`.
+- Adds `printK300CpclMinText()`.
+- Adds `printK300TsplMinText()`.
+- Adds `printK300TsplBlackBox()`.
 - Prints exactly one STORE_ITEM preview label.
 - Supports 60x40 and 40x30 gap labels.
 - Requires `machine_code` to be numeric and start with `5`.
