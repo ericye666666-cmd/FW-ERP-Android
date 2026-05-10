@@ -59,6 +59,9 @@ class DirectLoopPdaPrinterBridge(
     private var urovoPrinterAvailable = false
     private var urovoLastStatusCode: Int? = null
     private var urovoLastStatusText = ""
+    private var k300SppAvailable = false
+    private var k300SppLastCheckedAt = ""
+    private var k300SppLastError = ""
     private var lastError = ""
     private var lastProtocolTested = ""
     private var lastPrintResult = RESULT_NONE
@@ -195,7 +198,7 @@ class DirectLoopPdaPrinterBridge(
             return fail("connectPrinter expects a Bluetooth MAC address or JSON string with profile, address, and name.").toString()
         }
         if (selection.profile == DirectLoopPrinterProfile.UROVO_K300) {
-            return connectUrovoK300(selection).toString()
+            return connectExternalK300Spp(selection).toString()
         }
         if (selection.address.isBlank()) {
             return fail("connectPrinter requires a paired printer address or JSON config.").toString()
@@ -502,6 +505,14 @@ class DirectLoopPdaPrinterBridge(
         )
     }
 
+    @JavascriptInterface
+    @Synchronized
+    fun testK300SppConnection(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+        lastProtocolTested = K300_SPP_CONNECT_TEST_PROTOCOL
+        return runK300SppConnectionProbe().toString()
+    }
+
     private fun printStoreItemLabelPreviewWithProtocol(
         payloadJson: String,
         protocol: String,
@@ -538,21 +549,15 @@ class DirectLoopPdaPrinterBridge(
         closeSocket()
     }
 
-    private fun connectUrovoK300(selection: PrinterSelection): JSONObject {
+    private fun connectExternalK300Spp(selection: PrinterSelection): JSONObject {
         selectedProfile = DirectLoopPrinterProfile.UROVO_K300
         selectedPrinterAddress = selection.address
-        selectedPrinterName = selection.name.ifBlank { "Urovo K300" }
+        selectedPrinterName = selection.name
         connectionStatus = STATUS_CONNECTING
         lastError = ""
         chitengOfficialPrinterClient.disconnect()
         closeSocket()
-
-        val result = urovoK300PrinterManagerClient.getStatus()
-        applyUrovoResult(result)
-        lastPreviewTransport = PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER
-        lastPreviewSdkOperations = result.operations
-        lastError = if (result.success) "" else result.message
-        return statusJson(bridgeAvailable = true, errorOverride = lastError, refreshHealth = false)
+        return runK300SppConnectionProbe()
     }
 
     private fun printUrovoK300Diagnostic(
@@ -845,6 +850,55 @@ class DirectLoopPdaPrinterBridge(
         return lines.joinToString("\r\n", postfix = "\r\n")
     }
 
+    private fun runK300SppConnectionProbe(): JSONObject {
+        selectedProfile = DirectLoopPrinterProfile.UROVO_K300
+        lastProtocolTested = K300_SPP_CONNECT_TEST_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+        lastPreviewTransport = PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP
+        lastPreviewLabelSize = ""
+        lastPreviewTsplCommand = ""
+        lastPreviewTsplSentAt = timestamp()
+        lastPreviewTsplBytes = 2
+        lastPreviewSdkOperations = K300_SPP_CONNECT_TEST_OPERATIONS
+
+        val checkedAt = timestamp()
+        val target = k300SppConnectionTargetOrFailure(checkedAt)
+            ?: return statusJson(bridgeAvailable = true, refreshHealth = false)
+
+        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+
+        return try {
+            writeOneShotSppBytes(target.adapter, target.bondedDevice, ESC_INIT_BYTES, sleepMs = 300L)
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            connectionStatus = STATUS_CONNECTED
+            printerOnlineStatus = ONLINE_UNKNOWN
+            k300SppAvailable = true
+            k300SppLastCheckedAt = checkedAt
+            k300SppLastError = ""
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false)
+        } catch (error: SecurityException) {
+            previewPrintBusyUntilMs = 0L
+            k300SppConnectionFailure("Bluetooth permission denied while testing K300 Bluetooth SPP connection.", checkedAt)
+        } catch (error: IOException) {
+            previewPrintBusyUntilMs = 0L
+            k300SppConnectionFailure(
+                "K300 Bluetooth SPP connection failed: ${error.message ?: "unknown error"}.",
+                checkedAt,
+            )
+        } catch (error: RuntimeException) {
+            previewPrintBusyUntilMs = 0L
+            k300SppConnectionFailure(
+                "K300 Bluetooth SPP connection test failed: ${error.message ?: "unknown error"}.",
+                checkedAt,
+            )
+        }
+    }
+
     private fun sendOneShotK300SppDiagnostic(
         protocol: String,
         command: String,
@@ -985,6 +1039,62 @@ class DirectLoopPdaPrinterBridge(
         return PreviewPrintTarget(adapter = adapter, bondedDevice = bondedDevice)
     }
 
+    private fun k300SppConnectionTargetOrFailure(checkedAt: String): PreviewPrintTarget? {
+        if (selectedPrinterAddress.isBlank()) {
+            k300SppConnectionFailure(
+                "No Bluetooth printer is selected. Select a paired K300 printer before testing K300 Bluetooth SPP connection.",
+                checkedAt,
+            )
+            return null
+        }
+
+        val adapter = bluetoothAdapter()
+        if (adapter == null) {
+            k300SppConnectionFailure("Bluetooth adapter is not available on this device.", checkedAt)
+            return null
+        }
+        if (!ensureBluetoothConnectPermission()) {
+            k300SppConnectionFailure(
+                lastError.ifBlank { "Bluetooth permission is required. Grant Nearby devices permission and retry." },
+                checkedAt,
+            )
+            return null
+        }
+        if (!isBluetoothEnabled(adapter)) {
+            k300SppConnectionFailure("Bluetooth is disabled. Enable Bluetooth before testing K300 Bluetooth SPP connection.", checkedAt)
+            return null
+        }
+        val bondedDevice = bondedDeviceForAddress(adapter, selectedPrinterAddress)
+        if (bondedDevice == null) {
+            k300SppConnectionFailure("请先在 Android 系统蓝牙中完成配对后再连接。", checkedAt)
+            return null
+        }
+        if (System.currentTimeMillis() < previewPrintBusyUntilMs) {
+            k300SppConnectionFailure("Printer is busy. Wait before printing again.", checkedAt)
+            return null
+        }
+        if (selectedPrinterName.isBlank()) {
+            selectedPrinterName = safeDeviceName(bondedDevice)
+        }
+        return PreviewPrintTarget(adapter = adapter, bondedDevice = bondedDevice)
+    }
+
+    private fun k300SppConnectionFailure(message: String, checkedAt: String): JSONObject {
+        selectedProfile = DirectLoopPrinterProfile.UROVO_K300
+        connectionStatus = STATUS_ERROR
+        printerOnlineStatus = ONLINE_UNKNOWN
+        lastProtocolTested = K300_SPP_CONNECT_TEST_PROTOCOL
+        lastPreviewTransport = PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP
+        lastPrintResult = RESULT_FAILED
+        lastError = message
+        k300SppAvailable = false
+        k300SppLastCheckedAt = checkedAt
+        k300SppLastError = message
+        lastPreviewTsplBytes = 2
+        lastPreviewSdkOperations = K300_SPP_CONNECT_TEST_OPERATIONS
+        return statusJson(bridgeAvailable = true, errorOverride = message, refreshHealth = false)
+    }
+
     private fun previewPrintTargetOrFailure(): PreviewPrintTarget? {
         if (selectedPrinterAddress.isBlank()) {
             previewPrintFailure(
@@ -1108,6 +1218,9 @@ class DirectLoopPdaPrinterBridge(
             .put("urovo_printer_available", urovoPrinterAvailable)
             .put("urovo_last_status_code", urovoLastStatusCode ?: JSONObject.NULL)
             .put("urovo_last_status_text", urovoLastStatusText)
+            .put("k300_spp_available", k300SppAvailable)
+            .put("k300_spp_last_checked_at", k300SppLastCheckedAt)
+            .put("k300_spp_last_error", k300SppLastError)
             .put("last_error", statusError)
             .put("last_protocol_tested", lastProtocolTested)
             .put("last_print_result", lastPrintResult)
@@ -1140,6 +1253,7 @@ class DirectLoopPdaPrinterBridge(
             .put("printK300CpclMinText")
             .put("printK300TsplMinText")
             .put("printK300TsplBlackBox")
+            .put("testK300SppConnection")
     }
 
     private fun tsplLines(command: String): JSONArray {
@@ -1168,7 +1282,7 @@ class DirectLoopPdaPrinterBridge(
         }
 
         if (selectedProfile == DirectLoopPrinterProfile.UROVO_K300) {
-            refreshUrovoPrinterHealth()
+            refreshExternalK300SppHealth()
             return
         }
 
@@ -1258,6 +1372,17 @@ class DirectLoopPdaPrinterBridge(
             lastPreviewSdkOperations = result.operations
         }
         lastError = if (result.success) "" else result.message
+    }
+
+    private fun refreshExternalK300SppHealth() {
+        printerHealthCheckedAt = timestamp()
+        printerOnlineStatus = ONLINE_UNKNOWN
+        if (connectionStatus == STATUS_CONNECTING) {
+            connectionStatus = if (k300SppAvailable) STATUS_CONNECTED else STATUS_DISCONNECTED
+        }
+        if (lastProtocolTested.isBlank() && k300SppLastCheckedAt.isNotBlank()) {
+            lastProtocolTested = K300_SPP_CONNECT_TEST_PROTOCOL
+        }
     }
 
     private fun applyUrovoResult(result: UrovoK300PrinterManagerClient.UrovoK300PrintResult) {
@@ -1470,6 +1595,7 @@ class DirectLoopPdaPrinterBridge(
         adapter: BluetoothAdapter,
         bondedDevice: BluetoothDevice,
         bytes: ByteArray,
+        sleepMs: Long = 400L,
     ) {
         if (hasBluetoothScanPermission()) {
             try {
@@ -1486,7 +1612,7 @@ class DirectLoopPdaPrinterBridge(
             val stream = diagnosticSocket.outputStream
             stream.write(bytes)
             stream.flush()
-            Thread.sleep(400L)
+            Thread.sleep(sleepMs)
         } finally {
             try {
                 diagnosticSocket.close()
@@ -1764,6 +1890,7 @@ class DirectLoopPdaPrinterBridge(
         private const val K300_CPCL_MIN_TEXT_PROTOCOL = "K300_CPCL_MIN_TEXT"
         private const val K300_TSPL_MIN_TEXT_PROTOCOL = "K300_TSPL_MIN_TEXT"
         private const val K300_TSPL_BLACK_BOX_PROTOCOL = "K300_TSPL_BLACK_BOX"
+        private const val K300_SPP_CONNECT_TEST_PROTOCOL = "K300_SPP_CONNECT_TEST"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE = "CTPL_SDK_NO_LABEL_MODE"
         private const val PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO = "CTPL_SDK_BITMAP_DEMO"
         private const val PREVIEW_TRANSPORT_RAW_TSPL_SPP = "RAW_TSPL_SPP"
@@ -1773,5 +1900,12 @@ class DirectLoopPdaPrinterBridge(
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"
         private const val RESULT_FAILED = "failed"
+        private val ESC_INIT_BYTES = byteArrayOf(0x1B, 0x40)
+        private val K300_SPP_CONNECT_TEST_OPERATIONS = listOf(
+            "open_spp_socket",
+            "write_esc_init",
+            "flush",
+            "close_spp_socket",
+        )
     }
 }

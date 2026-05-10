@@ -206,6 +206,7 @@ grep -q 'printK300EscposMinText()' "$README"
 grep -q 'printK300CpclMinText()' "$README"
 grep -q 'printK300TsplMinText()' "$README"
 grep -q 'printK300TsplBlackBox()' "$README"
+grep -q 'testK300SppConnection()' "$README"
 grep -q 'Prints exactly one STORE_ITEM preview label' "$README"
 grep -q 'last_preview_transport' "$README"
 grep -q 'last_preview_sdk_operations' "$README"
@@ -225,7 +226,11 @@ grep -q 'K300_ESCPOS_MIN_TEXT' "$README"
 grep -q 'K300_CPCL_MIN_TEXT' "$README"
 grep -q 'K300_TSPL_MIN_TEXT' "$README"
 grep -q 'K300_TSPL_BLACK_BOX' "$README"
+grep -q 'K300_SPP_CONNECT_TEST' "$README"
 grep -q 'K300_BLUETOOTH_SPP' "$README"
+grep -q 'k300_spp_available' "$README"
+grep -q 'k300_spp_last_checked_at' "$README"
+grep -q 'k300_spp_last_error' "$README"
 grep -q 'android.device.PrinterManager' "$README"
 grep -q 'CHI TENG TSPL MANUAL' "$README"
 grep -q 'BAR 20,20,200,100' "$README"
@@ -273,6 +278,7 @@ grep -q 'fun printK300EscposMinText()' "$PRINTER_BRIDGE"
 grep -q 'fun printK300CpclMinText()' "$PRINTER_BRIDGE"
 grep -q 'fun printK300TsplMinText()' "$PRINTER_BRIDGE"
 grep -q 'fun printK300TsplBlackBox()' "$PRINTER_BRIDGE"
+grep -q 'fun testK300SppConnection()' "$PRINTER_BRIDGE"
 grep -q 'printOfficialStoreItemLabelPreview' "$PRINTER_BRIDGE"
 grep -q 'STORE_ITEM_LABEL_PREVIEW' "$PRINTER_BRIDGE"
 grep -q 'lastPreviewTransport' "$PRINTER_BRIDGE"
@@ -293,6 +299,7 @@ grep -q 'K300_ESCPOS_MIN_TEXT' "$PRINTER_BRIDGE"
 grep -q 'K300_CPCL_MIN_TEXT' "$PRINTER_BRIDGE"
 grep -q 'K300_TSPL_MIN_TEXT' "$PRINTER_BRIDGE"
 grep -q 'K300_TSPL_BLACK_BOX' "$PRINTER_BRIDGE"
+grep -q 'K300_SPP_CONNECT_TEST' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_RAW_TSPL_SPP' "$PRINTER_BRIDGE"
@@ -307,6 +314,9 @@ grep -q 'last_preview_sdk_operations' "$PRINTER_BRIDGE"
 grep -q 'urovo_printer_available' "$PRINTER_BRIDGE"
 grep -q 'urovo_last_status_code' "$PRINTER_BRIDGE"
 grep -q 'urovo_last_status_text' "$PRINTER_BRIDGE"
+grep -q 'k300_spp_available' "$PRINTER_BRIDGE"
+grep -q 'k300_spp_last_checked_at' "$PRINTER_BRIDGE"
+grep -q 'k300_spp_last_error' "$PRINTER_BRIDGE"
 if grep -q 'fun printStoreItemLabels' "$PRINTER_BRIDGE"; then
   echo "PR #19 must not expose batch STORE_ITEM printing through printStoreItemLabels." >&2
   exit 1
@@ -399,6 +409,10 @@ grep -q 'buildS1RawTsplMinTextCommand' "$PRINTER_BRIDGE"
 grep -q 'buildS1RawTsplBlackBoxCommand' "$PRINTER_BRIDGE"
 grep -q 'sendOneShotRawS1DiagnosticTspl' "$PRINTER_BRIDGE"
 grep -q 'sendOneShotK300SppDiagnostic' "$PRINTER_BRIDGE"
+grep -q 'connectExternalK300Spp' "$PRINTER_BRIDGE"
+grep -q 'runK300SppConnectionProbe' "$PRINTER_BRIDGE"
+grep -q 'write_esc_init' "$PRINTER_BRIDGE"
+grep -q 'byteArrayOf(0x1B, 0x40)' "$PRINTER_BRIDGE"
 grep -q 'write_escpos_min_text' "$PRINTER_BRIDGE"
 grep -q 'buildK300CpclMinTextCommand' "$PRINTER_BRIDGE"
 grep -q 'buildK300TsplMinTextCommand' "$PRINTER_BRIDGE"
@@ -439,6 +453,17 @@ sed -n '/fun printK300EscposMinText()/,/fun printK300CpclMinText()/p' "$PRINTER_
 sed -n '/fun printK300CpclMinText()/,/fun printK300TsplMinText()/p' "$PRINTER_BRIDGE" | grep -q 'K300_CPCL_MIN_TEXT'
 sed -n '/fun printK300TsplMinText()/,/fun printK300TsplBlackBox()/p' "$PRINTER_BRIDGE" | grep -q 'K300_TSPL_MIN_TEXT'
 sed -n '/fun printK300TsplBlackBox()/,/fun getLastPrintResult()/p' "$PRINTER_BRIDGE" | grep -q 'K300_TSPL_BLACK_BOX'
+sed -n '/fun testK300SppConnection()/,/private fun printStoreItemLabelPreviewWithProtocol/p' "$PRINTER_BRIDGE" | grep -q 'K300_SPP_CONNECT_TEST'
+sed -n '/fun connectPrinter/,/val adapter = bluetoothAdapter()/p' "$PRINTER_BRIDGE" | grep -q 'connectExternalK300Spp(selection)'
+if sed -n '/fun connectPrinter/,/val adapter = bluetoothAdapter()/p' "$PRINTER_BRIDGE" | grep -q 'connectUrovoK300(selection)'; then
+  echo "UROVO_K300 connectPrinter path must use the external K300 SPP probe, not PrinterManager connect." >&2
+  exit 1
+fi
+sed -n '/private fun runK300SppConnectionProbe/,/private fun sendOneShotK300SppDiagnostic/p' "$PRINTER_BRIDGE" | grep -q 'lastPreviewTsplBytes = 2'
+sed -n '/private fun runK300SppConnectionProbe/,/private fun sendOneShotK300SppDiagnostic/p' "$PRINTER_BRIDGE" | grep -q 'printerOnlineStatus = ONLINE_UNKNOWN'
+sed -n '/private fun runK300SppConnectionProbe/,/private fun sendOneShotK300SppDiagnostic/p' "$PRINTER_BRIDGE" | grep -q 'k300SppAvailable = true'
+sed -n '/private fun k300SppConnectionFailure/,/private fun previewPrintTargetOrFailure/p' "$PRINTER_BRIDGE" | grep -q 'k300SppAvailable = false'
+sed -n '/private fun runK300SppConnectionProbe/,/private fun sendOneShotK300SppDiagnostic/p' "$PRINTER_BRIDGE" | grep -q 'writeOneShotSppBytes(target.adapter, target.bondedDevice, ESC_INIT_BYTES, sleepMs = 300L)'
 sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q '! 0 200 200 240 1'
 sed -n '/private fun buildK300CpclMinTextCommand()/,/private fun buildK300TsplMinTextCommand()/p' "$PRINTER_BRIDGE" | grep -q 'PRINT'
 sed -n '/private fun buildK300TsplMinTextCommand()/,/private fun buildK300TsplBlackBoxCommand()/p' "$PRINTER_BRIDGE" | grep -q 'TEXT 20,40,\\"TSS24.BF2\\",0,1,1,\\"K300 TSPL TEST\\"'
