@@ -529,6 +529,37 @@ class DirectLoopPdaPrinterBridge(
 
     @JavascriptInterface
     @Synchronized
+    fun printK300CpclRawPreview(payloadJson: String): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        lastProtocolTested = K300_CPCL_RAW_PREVIEW_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+
+        val command = try {
+            validateK300CpclRawPreviewPayload(payloadJson)
+        } catch (error: JSONException) {
+            return previewPrintFailure("K300 CPCL raw preview payload is invalid: ${error.message ?: "invalid JSON"}.")
+                .toString()
+        } catch (error: IllegalArgumentException) {
+            return previewPrintFailure("K300 CPCL raw preview payload is invalid: ${error.message ?: "invalid payload"}.")
+                .toString()
+        }
+
+        return sendOneShotK300SppDiagnostic(
+            protocol = K300_CPCL_RAW_PREVIEW_PROTOCOL,
+            command = command,
+            bytes = command.toByteArray(Charset.forName("GBK")),
+            operations = listOf(
+                "open_spp_socket",
+                "write_cpcl_raw_preview",
+                "flush",
+                "close_spp_socket",
+            ),
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
     fun printK300CpclStoreItemPreview(payloadJson: String): String {
         if (!isTrustedPage()) return untrustedStatus().toString()
 
@@ -973,6 +1004,30 @@ class DirectLoopPdaPrinterBridge(
             "PRINT",
         )
         return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun validateK300CpclRawPreviewPayload(payloadJson: String): String {
+        val payload = JSONObject(payloadJson)
+        val labelTemplateSize = payload.optString("label_template_size").trim()
+        require(labelTemplateSize == "40x30") { "label_template_size must be 40x30." }
+
+        val protocol = payload.optString("protocol").trim().uppercase(Locale.US)
+        require(protocol == "CPCL") { "protocol must be CPCL." }
+
+        val cpclCommand = payload.optString("cpcl_command")
+        require(cpclCommand.isNotBlank()) { "cpcl_command is required." }
+        require(Regex("\\bPRINT\\b", RegexOption.IGNORE_CASE).containsMatchIn(cpclCommand)) {
+            "cpcl_command must include PRINT."
+        }
+
+        val dangerousCommands = Regex("\\b(FILE|DELETE|FORMAT|DOWNLOAD|RUN|EXEC)\\b", RegexOption.IGNORE_CASE)
+        require(!dangerousCommands.containsMatchIn(cpclCommand)) {
+            "cpcl_command contains unsupported CPCL command."
+        }
+
+        val cpclBytes = cpclCommand.toByteArray(Charset.forName("GBK"))
+        require(cpclBytes.size < 2000) { "cpcl_command must be under 2000 bytes." }
+        return cpclCommand
     }
 
     private fun buildK300CpclStoreItemPreviewCommand(
@@ -1436,6 +1491,7 @@ class DirectLoopPdaPrinterBridge(
             .put("printK300CpclCode128TallTest")
             .put("printK300CpclCode128QuietZoneTest")
             .put("printK300CpclCode128CompactTopTest")
+            .put("printK300CpclRawPreview")
             .put("printK300CpclStoreItemPreview")
             .put("printK300TsplMinText")
             .put("printK300TsplBlackBox")
@@ -2079,6 +2135,7 @@ class DirectLoopPdaPrinterBridge(
         private const val K300_CPCL_CODE128_TALL_TEST_PROTOCOL = "K300_CPCL_CODE128_TALL_TEST"
         private const val K300_CPCL_CODE128_QUIET_ZONE_TEST_PROTOCOL = "K300_CPCL_CODE128_QUIET_ZONE_TEST"
         private const val K300_CPCL_CODE128_COMPACT_TOP_TEST_PROTOCOL = "K300_CPCL_CODE128_COMPACT_TOP_TEST"
+        private const val K300_CPCL_RAW_PREVIEW_PROTOCOL = "K300_CPCL_RAW_PREVIEW"
         private const val K300_CPCL_STORE_ITEM_PREVIEW_PROTOCOL = "K300_CPCL_STORE_ITEM_PREVIEW"
         private const val K300_TSPL_MIN_TEXT_PROTOCOL = "K300_TSPL_MIN_TEXT"
         private const val K300_TSPL_BLACK_BOX_PROTOCOL = "K300_TSPL_BLACK_BOX"
