@@ -177,6 +177,15 @@ If a second preview request arrives while the previous label is likely still
 moving, the bridge returns `Printer is busy. Wait before printing again.`
 instead of queueing another feed.
 
+The latest `getPrinterStatus()` raw JSON includes preview-print diagnostics so
+the FW-ERP PDA diagnostics panel can prove whether the raw TSPL path was used:
+`last_protocol_tested` should be `STORE_ITEM_LABEL_PREVIEW_TSPL`,
+`last_preview_transport` should be `RAW_TSPL_SPP`, and
+`last_preview_tspl_command` / `last_preview_tspl_lines` show the exact
+`SIZE`, `TEXT`, `BARCODE`, and `PRINT 1,1` commands prepared for the one-label
+preview. The same status also reports `last_preview_label_size`,
+`last_preview_tspl_sent_at`, and `last_preview_tspl_bytes`.
+
 Required preview payload shape:
 
 ```json
