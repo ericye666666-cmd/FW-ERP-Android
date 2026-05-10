@@ -1,8 +1,13 @@
 package com.directloop.pda
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
+import android.graphics.Rect
+import android.graphics.Typeface
 import com.ctaiot.ctprinter.ctpl.CTPL
 import com.ctaiot.ctprinter.ctpl.Device
 import com.ctaiot.ctprinter.ctpl.RespCallback
@@ -19,7 +24,22 @@ import java.util.concurrent.TimeUnit
 
 private const val STORE_ITEM_PREVIEW_TEMPLATE_60X40 = "60x40"
 private const val STORE_ITEM_PREVIEW_TEMPLATE_40X30 = "40x30"
+private const val STORE_ITEM_LABEL_DOTS_PER_MM = 8
 private val STORE_ITEM_MACHINE_CODE_PATTERN = Regex("^\\d{8,32}$")
+private val CODE_128_PATTERNS = arrayOf(
+    "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212",
+    "221213", "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221",
+    "223211", "221132", "221231", "213212", "223112", "312131", "311222", "321122", "321221",
+    "312212", "322112", "322211", "212123", "212321", "232121", "111323", "131123", "131321",
+    "112313", "132113", "132311", "211313", "231113", "231311", "112133", "112331", "132131",
+    "113123", "113321", "133121", "313121", "211331", "231131", "213113", "213311", "213131",
+    "311123", "311321", "331121", "312113", "312311", "332111", "314111", "221411", "431111",
+    "111224", "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114",
+    "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111", "111242",
+    "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141",
+    "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311",
+    "113141", "114131", "311141", "411131", "211412", "211214", "211232", "2331112",
+)
 
 class ChitengS1OfficialPrinterClient(
     private val application: Application,
@@ -118,7 +138,6 @@ class ChitengS1OfficialPrinterClient(
 
         return try {
             sdk.clean()
-            sdk.setBackpressure(true)
             sdk
                 .setSize(60, 40)
                 .setPaperType(PaperType.Label)
@@ -164,11 +183,8 @@ class ChitengS1OfficialPrinterClient(
 
         return try {
             sdk.clean()
-            sdk.setBackpressure(true)
             sdk
                 .setSize(payload.widthMm, payload.heightMm)
-                .setPaperType(PaperType.Label)
-                .setPrintMode(PrintMode.Label_Divide)
                 .setPrintSpeed(2)
                 .setPrintDensity(12)
             drawStoreItemPreviewLabel(sdk, payload)
@@ -334,40 +350,132 @@ class ChitengS1OfficialPrinterClient(
         sdk: CTPL,
         payload: StoreItemLabelPreviewPayload,
     ) {
+        val bitmap = buildStoreItemPreviewBitmap(payload)
+        sdk.drawBitmap(Rect(0, 0, bitmap.width, bitmap.height), bitmap, true, null)
+    }
+
+    private fun buildStoreItemPreviewBitmap(payload: StoreItemLabelPreviewPayload): Bitmap {
         val label = payload.label
-        if (payload.templateSize == STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
-            sdk
-                .drawText(Point(16, 14), Rotate.Degree0, 1, 1, "${label.categoryShort} / ${label.grade}")
-                .drawText(Point(16, 56), Rotate.Degree0, 2, 2, "KES ${label.priceKes}")
-                .drawBarCode(
-                    Point(22, 116),
-                    56,
-                    BarCode.CODE_128,
-                    Paint.Align.LEFT,
-                    Rotate.Degree0,
-                    2,
-                    2,
-                    label.machineCode,
-                )
-                .drawText(Point(62, 184), Rotate.Degree0, 1, 1, label.machineCode)
-            return
+        val widthDots = payload.widthMm * STORE_ITEM_LABEL_DOTS_PER_MM
+        val heightDots = payload.heightMm * STORE_ITEM_LABEL_DOTS_PER_MM
+        val bitmap = Bitmap.createBitmap(widthDots, heightDots, Bitmap.Config.RGB_565)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val regularPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            typeface = Typeface.MONOSPACE
+        }
+        val barcodePaint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+            isAntiAlias = false
         }
 
-        sdk
-            .drawText(Point(24, 20), Rotate.Degree0, 1, 1, label.categoryShort)
-            .drawText(Point(410, 20), Rotate.Degree0, 1, 1, label.grade)
-            .drawText(Point(24, 74), Rotate.Degree0, 2, 2, "KES ${label.priceKes}")
-            .drawBarCode(
-                Point(34, 166),
-                74,
-                BarCode.CODE_128,
-                Paint.Align.LEFT,
-                Rotate.Degree0,
-                2,
-                2,
-                label.machineCode,
-            )
-            .drawText(Point(96, 250), Rotate.Degree0, 1, 1, label.machineCode)
+        if (payload.templateSize == STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
+            drawTextToFit(canvas, "${label.categoryShort} / ${label.grade}", 16f, 30f, 288f, textPaint, 24f, 16f)
+            drawTextToFit(canvas, "KES ${label.priceKes}", 16f, 78f, 288f, textPaint, 38f, 24f)
+            drawCode128Barcode(canvas, label.machineCode, Rect(18, 98, widthDots - 18, 164), barcodePaint)
+            drawCenteredTextToFit(canvas, label.machineCode, widthDots / 2f, 206f, 288f, regularPaint, 24f, 16f)
+            return bitmap
+        }
+
+        drawTextToFit(canvas, label.categoryShort, 24f, 36f, 340f, textPaint, 28f, 18f)
+        drawTextToFit(canvas, label.grade, widthDots - 70f, 36f, 50f, textPaint, 28f, 18f)
+        drawTextToFit(canvas, "KES ${label.priceKes}", 24f, 100f, 432f, textPaint, 52f, 32f)
+        drawCode128Barcode(canvas, label.machineCode, Rect(32, 140, widthDots - 32, 232), barcodePaint)
+        drawCenteredTextToFit(canvas, label.machineCode, widthDots / 2f, 282f, 416f, regularPaint, 28f, 18f)
+        return bitmap
+    }
+
+    private fun drawTextToFit(
+        canvas: Canvas,
+        text: String,
+        x: Float,
+        baselineY: Float,
+        maxWidth: Float,
+        paint: Paint,
+        maxTextSize: Float,
+        minTextSize: Float,
+    ) {
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = maxTextSize
+        while (paint.textSize > minTextSize && paint.measureText(text) > maxWidth) {
+            paint.textSize -= 1f
+        }
+        canvas.drawText(text, x, baselineY, paint)
+    }
+
+    private fun drawCenteredTextToFit(
+        canvas: Canvas,
+        text: String,
+        centerX: Float,
+        baselineY: Float,
+        maxWidth: Float,
+        paint: Paint,
+        maxTextSize: Float,
+        minTextSize: Float,
+    ) {
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = maxTextSize
+        while (paint.textSize > minTextSize && paint.measureText(text) > maxWidth) {
+            paint.textSize -= 1f
+        }
+        canvas.drawText(text, centerX, baselineY, paint)
+    }
+
+    private fun drawCode128Barcode(canvas: Canvas, value: String, rect: Rect, paint: Paint) {
+        val codes = buildCode128Codes(value)
+        val totalModules = codes.sumOf { code ->
+            CODE_128_PATTERNS[code].sumOf { width -> width.digitToInt() }
+        }
+        val moduleWidth = maxOf(1, rect.width() / totalModules)
+        val barcodeWidth = totalModules * moduleWidth
+        var x = rect.left + ((rect.width() - barcodeWidth) / 2)
+        codes.forEach { code ->
+            CODE_128_PATTERNS[code].forEachIndexed { index, widthChar ->
+                val segmentWidth = widthChar.digitToInt() * moduleWidth
+                if (index % 2 == 0) {
+                    canvas.drawRect(x.toFloat(), rect.top.toFloat(), (x + segmentWidth).toFloat(), rect.bottom.toFloat(), paint)
+                }
+                x += segmentWidth
+            }
+        }
+    }
+
+    private fun buildCode128Codes(value: String): List<Int> {
+        val codes = mutableListOf<Int>()
+        if (value.all { it in '0'..'9' } && value.length >= 2) {
+            var index = 0
+            if (value.length % 2 == 0) {
+                codes += 105
+            } else {
+                codes += 104
+                codes += value[0].code - 32
+                if (value.length > 1) {
+                    codes += 99
+                }
+                index = 1
+            }
+            while (index + 1 < value.length) {
+                codes += value.substring(index, index + 2).toInt()
+                index += 2
+            }
+        } else {
+            codes += 104
+            value.forEach { char ->
+                codes += (char.code.coerceIn(32, 126) - 32)
+            }
+        }
+
+        val checksum = (codes.first() + codes.drop(1).mapIndexed { index, code -> code * (index + 1) }.sum()) % 103
+        codes += checksum
+        codes += 106
+        return codes
     }
 
     private fun initializeSdk(sdk: CTPL) {
