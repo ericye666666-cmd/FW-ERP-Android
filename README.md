@@ -84,6 +84,8 @@ Supported bridge methods:
 - `printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)`
 - `printStoreItemLabelPreviewCtplBitmapDemo(payloadJson)`
 - `printStoreItemLabelPreviewRawTspl(payloadJson)`
+- `printS1RawTsplMinText()`
+- `printS1RawTsplBlackBox()`
 - `getLastPrintResult()`
 
 `getAppInfo()` is the non-printing bridge version probe used by FW-ERP login
@@ -105,7 +107,9 @@ and does not expose secrets, printer credentials, or business data:
     "printStoreItemLabelPreview",
     "printStoreItemLabelPreviewCtplNoLabelMode",
     "printStoreItemLabelPreviewCtplBitmapDemo",
-    "printStoreItemLabelPreviewRawTspl"
+    "printStoreItemLabelPreviewRawTspl",
+    "printS1RawTsplMinText",
+    "printS1RawTsplBlackBox"
   ]
 }
 ```
@@ -188,6 +192,18 @@ variants instead of hiding everything behind one misleading success result:
   or backpressure.
 - `printStoreItemLabelPreviewRawTspl(payloadJson)` sends raw TSPL over
   Bluetooth SPP using GBK bytes and CRLF line endings.
+- `printS1RawTsplMinText()` sends the smallest 40x30 raw TSPL text probe:
+  `SIZE 40 mm,30 mm`, `TEXT 100,150,"TSS24.BF2",0,1,1,"CHI TENG TSPL MANUAL"`,
+  and `PRINT 1,1`.
+- `printS1RawTsplBlackBox()` sends the smallest 40x30 raw TSPL graphic probe:
+  `SIZE 40 mm,30 mm`, `CLS`, `SPEED 2`, `DENSITY 12`, `DIRECTION 0`,
+  `BAR 20,20,200,100`, and `PRINT 1,1`.
+
+The two minimal raw TSPL probes are diagnostic-only. They use one-shot Bluetooth
+SPP writes, GBK encoding, and CRLF line endings. They do not send FEED,
+FORMFEED, GAPDETECT, calibration, CTPL SDK drawing calls, `Label_Divide`, or
+backpressure. Success only means the bytes were written and flushed to the
+Bluetooth SPP socket; it does not prove the physical label printed.
 
 The legacy `printStoreItemLabelPreview(payloadJson)` entry remains available for
 older FW-ERP bundles, but it now routes to the CTPL no-label-mode variant rather
@@ -201,7 +217,9 @@ the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `last_protocol_tested` should be one of
 `STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE`,
 `STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO`, or
-`STORE_ITEM_LABEL_PREVIEW_TSPL`. `last_preview_transport` should be one of
+`STORE_ITEM_LABEL_PREVIEW_TSPL`. Minimal raw probes use
+`S1_RAW_TSPL_MIN_TEXT` and `S1_RAW_TSPL_BLACK_BOX`. `last_preview_transport`
+should be one of
 `CTPL_SDK_NO_LABEL_MODE`, `CTPL_SDK_BITMAP_DEMO`, or `RAW_TSPL_SPP`.
 `last_preview_sdk_operations` shows CTPL operations, while the TSPL variant
 also exposes `last_preview_tspl_command`, `last_preview_tspl_lines`, and
@@ -234,6 +252,8 @@ Contract summary:
 - Adds `printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)`.
 - Adds `printStoreItemLabelPreviewCtplBitmapDemo(payloadJson)`.
 - Adds `printStoreItemLabelPreviewRawTspl(payloadJson)`.
+- Adds `printS1RawTsplMinText()`.
+- Adds `printS1RawTsplBlackBox()`.
 - Prints exactly one STORE_ITEM preview label.
 - Supports 60x40 and 40x30 gap labels.
 - Requires `machine_code` to be numeric and start with `5`.

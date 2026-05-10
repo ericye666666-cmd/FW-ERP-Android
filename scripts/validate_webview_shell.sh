@@ -194,6 +194,8 @@ grep -q 'printStoreItemLabelPreview(payloadJson)' "$README"
 grep -q 'printStoreItemLabelPreviewCtplNoLabelMode(payloadJson)' "$README"
 grep -q 'printStoreItemLabelPreviewCtplBitmapDemo(payloadJson)' "$README"
 grep -q 'printStoreItemLabelPreviewRawTspl(payloadJson)' "$README"
+grep -q 'printS1RawTsplMinText()' "$README"
+grep -q 'printS1RawTsplBlackBox()' "$README"
 grep -q 'Prints exactly one STORE_ITEM preview label' "$README"
 grep -q 'last_preview_transport' "$README"
 grep -q 'last_preview_sdk_operations' "$README"
@@ -203,6 +205,10 @@ grep -q 'STORE_ITEM_LABEL_PREVIEW_TSPL' "$README"
 grep -q 'CTPL_SDK_NO_LABEL_MODE' "$README"
 grep -q 'CTPL_SDK_BITMAP_DEMO' "$README"
 grep -q 'RAW_TSPL_SPP' "$README"
+grep -q 'S1_RAW_TSPL_MIN_TEXT' "$README"
+grep -q 'S1_RAW_TSPL_BLACK_BOX' "$README"
+grep -q 'CHI TENG TSPL MANUAL' "$README"
+grep -q 'BAR 20,20,200,100' "$README"
 grep -q 'No batch printing' "$README"
 grep -q 'No barcode generation in Android' "$README"
 grep -q 'printStoreItemLabelPreview(payloadJson)' "$ROOT_DIR/docs/chiteng-s1-integration-notes.md"
@@ -237,6 +243,8 @@ grep -q 'fun printStoreItemLabelPreview' "$PRINTER_BRIDGE"
 grep -q 'fun printStoreItemLabelPreviewCtplNoLabelMode' "$PRINTER_BRIDGE"
 grep -q 'fun printStoreItemLabelPreviewCtplBitmapDemo' "$PRINTER_BRIDGE"
 grep -q 'fun printStoreItemLabelPreviewRawTspl' "$PRINTER_BRIDGE"
+grep -q 'fun printS1RawTsplMinText()' "$PRINTER_BRIDGE"
+grep -q 'fun printS1RawTsplBlackBox()' "$PRINTER_BRIDGE"
 grep -q 'printOfficialStoreItemLabelPreview' "$PRINTER_BRIDGE"
 grep -q 'STORE_ITEM_LABEL_PREVIEW' "$PRINTER_BRIDGE"
 grep -q 'lastPreviewTransport' "$PRINTER_BRIDGE"
@@ -248,6 +256,8 @@ grep -q 'lastPreviewSdkOperations' "$PRINTER_BRIDGE"
 grep -q 'STORE_ITEM_LABEL_PREVIEW_CTPL_NO_LABEL_MODE' "$PRINTER_BRIDGE"
 grep -q 'STORE_ITEM_LABEL_PREVIEW_CTPL_BITMAP_DEMO' "$PRINTER_BRIDGE"
 grep -q 'STORE_ITEM_LABEL_PREVIEW_TSPL' "$PRINTER_BRIDGE"
+grep -q 'S1_RAW_TSPL_MIN_TEXT' "$PRINTER_BRIDGE"
+grep -q 'S1_RAW_TSPL_BLACK_BOX' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_TRANSPORT_RAW_TSPL_SPP' "$PRINTER_BRIDGE"
@@ -345,8 +355,24 @@ grep -q 'printStoreItemLabelPreview' "$PRINTER_BRIDGE"
 grep -q 'sendRawStoreItemPreviewTspl' "$PRINTER_BRIDGE"
 grep -q 'Charset.forName("GBK")' "$PRINTER_BRIDGE"
 grep -q 'legacyRawTsplForDiagnostics' "$PRINTER_BRIDGE"
+grep -q 'buildS1RawTsplMinTextCommand' "$PRINTER_BRIDGE"
+grep -q 'buildS1RawTsplBlackBoxCommand' "$PRINTER_BRIDGE"
+grep -q 'sendOneShotRawS1DiagnosticTspl' "$PRINTER_BRIDGE"
+grep -q 'CHI TENG TSPL MANUAL' "$PRINTER_BRIDGE"
+grep -q 'BAR 20,20,200,100' "$PRINTER_BRIDGE"
+grep -q 'Thread.sleep(400L)' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L' "$PRINTER_BRIDGE"
 grep -q 'Printer is busy. Wait before printing again.' "$PRINTER_BRIDGE"
+sed -n '/fun printS1RawTsplMinText()/,/fun printS1RawTsplBlackBox()/p' "$PRINTER_BRIDGE" | grep -q 'S1_RAW_TSPL_MIN_TEXT'
+sed -n '/fun printS1RawTsplBlackBox()/,/private fun printStoreItemLabelPreviewWithProtocol/p' "$PRINTER_BRIDGE" | grep -q 'S1_RAW_TSPL_BLACK_BOX'
+sed -n '/private fun buildS1RawTsplMinTextCommand()/,/private fun buildS1RawTsplBlackBoxCommand()/p' "$PRINTER_BRIDGE" | grep -q 'SIZE 40 mm,30 mm'
+sed -n '/private fun buildS1RawTsplMinTextCommand()/,/private fun buildS1RawTsplBlackBoxCommand()/p' "$PRINTER_BRIDGE" | grep -q 'TEXT 100,150,\\"TSS24.BF2\\",0,1,1,\\"CHI TENG TSPL MANUAL\\"'
+sed -n '/private fun buildS1RawTsplBlackBoxCommand()/,/private fun sendOneShotRawS1DiagnosticTspl/p' "$PRINTER_BRIDGE" | grep -q 'BAR 20,20,200,100'
+sed -n '/private fun buildS1RawTsplMinTextCommand()/,/private fun sendOneShotRawS1DiagnosticTspl/p' "$PRINTER_BRIDGE" | grep -Fq 'joinToString("\r\n", postfix = "\r\n")'
+if sed -n '/private fun buildS1RawTsplMinTextCommand()/,/private fun sendOneShotRawS1DiagnosticTspl/p' "$PRINTER_BRIDGE" | grep -q 'GAPDETECT\|FORMFEED\|FEED\|Label_Divide\|setBackpressure\|drawBitmap\|drawText\|drawBarCode'; then
+  echo "Minimal S1 raw TSPL diagnostics must not use feed, calibration, CTPL drawing, Label_Divide, or backpressure." >&2
+  exit 1
+fi
 if awk '
   /private fun printOfficialStoreItemLabelPreviewCtplNoLabelMode/ { in_preview = 1 }
   in_preview && /private fun guardedStatus/ { in_preview = 0 }

@@ -600,11 +600,24 @@ blank labels on real hardware and is no longer the default.
   `print(1)`, and `execute`.
 - `printStoreItemLabelPreviewRawTspl(payloadJson)` sends raw TSPL over Bluetooth
   SPP with GBK encoding and CRLF line endings.
+- `printS1RawTsplMinText()` sends one 40x30 raw TSPL minimal text probe:
+  `SIZE 40 mm,30 mm`, `TEXT 100,150,"TSS24.BF2",0,1,1,"CHI TENG TSPL MANUAL"`,
+  and `PRINT 1,1`.
+- `printS1RawTsplBlackBox()` sends one 40x30 raw TSPL primitive probe:
+  `SIZE 40 mm,30 mm`, `CLS`, `SPEED 2`, `DENSITY 12`, `DIRECTION 0`,
+  `BAR 20,20,200,100`, and `PRINT 1,1`.
 
-All three methods use the same one-label payload validation as
-`printStoreItemLabelPreview(payloadJson)`: `labels.length` must be exactly one,
-`machine_code` must be numeric and start with 5, and `barcode_value` must equal
-`machine_code`.
+The three payload-based STORE_ITEM preview variants use the same one-label
+payload validation as `printStoreItemLabelPreview(payloadJson)`: `labels.length`
+must be exactly one, `machine_code` must be numeric and start with 5, and
+`barcode_value` must equal `machine_code`.
+
+The two minimal raw TSPL probes do not accept business label payloads and do not
+print or generate STORE_ITEM barcodes. They exist only to prove whether Chiteng
+S1 can parse raw TSPL at all. They use a one-shot Bluetooth Classic SPP socket
+write with UUID `00001101-0000-1000-8000-00805F9B34FB`, GBK bytes, and CRLF
+line endings. They must not send `FEED`, `FORMFEED`, `GAPDETECT`, calibration
+commands, CTPL drawing calls, `Label_Divide`, or backpressure.
 
 ### `printStoreItemBatchDiagnostic(jsonPayload)`
 
@@ -676,6 +689,10 @@ Raw TSPL STORE_ITEM preview note:
 - The raw TSPL preview path must not send `FEED`, `FORMFEED`, `GAPDETECT`,
   calibration commands, CTPL backpressure, `Label_Divide`, or SDK bitmap
   commands.
+- Minimal raw probes report `last_protocol_tested` as `S1_RAW_TSPL_MIN_TEXT`
+  or `S1_RAW_TSPL_BLACK_BOX`, `last_preview_transport` as `RAW_TSPL_SPP`, and
+  expose `last_preview_tspl_command`, `last_preview_tspl_lines`, and
+  `last_preview_tspl_bytes`.
 - Rapid second-click preview requests should return a busy response instead of
   queueing another print while the previous label is still moving.
 
