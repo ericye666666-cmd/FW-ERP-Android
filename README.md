@@ -71,6 +71,7 @@ from an untrusted page return a rejected status instead of touching Bluetooth.
 
 Supported bridge methods:
 
+- `getAppInfo()`
 - `getPrinterStatus()`
 - `listPairedPrinters()`
 - `startPrinterDiscovery()`
@@ -81,6 +82,27 @@ Supported bridge methods:
 - `printTestLabel(protocol)`
 - `printStoreItemLabelPreview(payloadJson)`
 - `getLastPrintResult()`
+
+`getAppInfo()` is the non-printing bridge version probe used by FW-ERP login
+and diagnostics pages. It is only available on the trusted `FW_ERP_HOST` page
+and does not expose secrets, printer credentials, or business data:
+
+```json
+{
+  "app_name": "Direct Loop PDA",
+  "version_name": "0.1.0",
+  "version_code": 1,
+  "package_name": "com.directloop.pda",
+  "bridge_version": "pda-android-20260510-appinfo",
+  "supported_methods": [
+    "getPrinterStatus",
+    "connectPrinter",
+    "disconnectPrinter",
+    "printTestLabel",
+    "printStoreItemLabelPreview"
+  ]
+}
+```
 
 `getPrinterStatus()` also reports `discovery_status`,
 `discovered_printer_count`, `discovered_printers`, `printer_online_status`,
