@@ -169,22 +169,21 @@ it does not generate or transform STORE_ITEM barcodes. No batch printing is
 allowed, no FW-ERP print job is marked printed, and no sticker confirmation is
 written by Android.
 
-For the Chiteng S1 preview print path, Android sends raw TSPL bytes over a
-one-shot Bluetooth SPP socket instead of using CTPL bitmap drawing. The TSPL
-uses only `SIZE`, `CLS`, `SPEED`, `DENSITY`, `DIRECTION`, `TEXT`, `BARCODE`,
-and `PRINT 1,1`; every line ends with `\r\n` and the bytes are encoded as GBK.
+For the Chiteng S1 preview print path, Android uses the official CTPL SDK with
+`drawText` and `drawBarCode`, not the unstable raw TSPL/SPP or SDK bitmap
+paths. The SDK path sets label size, label paper mode, speed, density, customer
+text, one Code128 barcode, `print(1)`, and `execute()`.
 If a second preview request arrives while the previous label is likely still
 moving, the bridge returns `Printer is busy. Wait before printing again.`
 instead of queueing another feed.
 
 The latest `getPrinterStatus()` raw JSON includes preview-print diagnostics so
-the FW-ERP PDA diagnostics panel can prove whether the raw TSPL path was used:
-`last_protocol_tested` should be `STORE_ITEM_LABEL_PREVIEW_TSPL`,
-`last_preview_transport` should be `RAW_TSPL_SPP`, and
-`last_preview_tspl_command` / `last_preview_tspl_lines` show the exact
-`SIZE`, `TEXT`, `BARCODE`, and `PRINT 1,1` commands prepared for the one-label
-preview. The same status also reports `last_preview_label_size`,
-`last_preview_tspl_sent_at`, and `last_preview_tspl_bytes`.
+the FW-ERP PDA diagnostics panel can prove which preview path was used:
+`last_protocol_tested` should be `STORE_ITEM_LABEL_PREVIEW_CTPL`,
+`last_preview_transport` should be `CTPL_SDK`, and
+`last_preview_sdk_operations` shows the official SDK operations prepared for the
+one-label preview. The legacy TSPL diagnostic fields remain present but are
+empty for the CTPL preview path.
 
 Required preview payload shape:
 

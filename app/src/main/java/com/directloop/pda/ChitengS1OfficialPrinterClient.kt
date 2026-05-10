@@ -152,6 +152,80 @@ class ChitengS1OfficialPrinterClient(
     }
 
     @Synchronized
+    fun printStoreItemLabelPreview(
+        address: String,
+        name: String,
+        payload: StoreItemLabelPreviewPayload,
+    ): ChitengOfficialPrintResult {
+        val connectResult = connect(address, name)
+        if (!connectResult.success) return connectResult
+
+        val sdk = sdkOrFailure() ?: return failure("Chiteng official CTPL SDK is not available.")
+
+        return try {
+            sdk.clean()
+            sdk
+                .setSize(payload.widthMm, payload.heightMm)
+                .setPaperType(PaperType.Label)
+                .setPrintMode(PrintMode.Label_Divide)
+                .setPrintSpeed(2)
+                .setPrintDensity(12)
+
+            drawStoreItemPreviewLabel(sdk, payload)
+
+            sdk
+                .print(1)
+                .execute()
+
+            success("Chiteng official SDK STORE_ITEM preview label was sent.")
+        } catch (error: SecurityException) {
+            failure("Bluetooth permission denied while printing STORE_ITEM preview through Chiteng official SDK.")
+        } catch (error: RuntimeException) {
+            failure("Chiteng official SDK STORE_ITEM preview print failed: ${error.message ?: "unknown error"}.")
+        }
+    }
+
+    private fun drawStoreItemPreviewLabel(
+        sdk: CTPL,
+        payload: StoreItemLabelPreviewPayload,
+    ) {
+        val label = payload.label
+        if (payload.templateSize == STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
+            sdk
+                .drawText(Point(18, 18), Rotate.Degree0, 1, 1, label.shortHeaderText())
+                .drawText(Point(18, 54), Rotate.Degree0, 2, 2, "KES ${label.priceKes}")
+                .drawBarCode(
+                    Point(22, 112),
+                    64,
+                    BarCode.CODE_128,
+                    Paint.Align.LEFT,
+                    Rotate.Degree0,
+                    2,
+                    2,
+                    label.machineCode,
+                )
+                .drawText(Point(42, 194), Rotate.Degree0, 1, 1, label.machineCode)
+            return
+        }
+
+        sdk
+            .drawText(Point(24, 24), Rotate.Degree0, 1, 1, label.categoryShort)
+            .drawText(Point(420, 24), Rotate.Degree0, 1, 1, label.grade)
+            .drawText(Point(24, 78), Rotate.Degree0, 2, 2, "KES ${label.priceKes}")
+            .drawBarCode(
+                Point(34, 150),
+                86,
+                BarCode.CODE_128,
+                Paint.Align.LEFT,
+                Rotate.Degree0,
+                2,
+                2,
+                label.machineCode,
+            )
+            .drawText(Point(96, 252), Rotate.Degree0, 1, 1, label.machineCode)
+    }
+
+    @Synchronized
     fun verifyConnection(address: String): ChitengOfficialHealthResult {
         val printerAddress = address.trim()
         val sdk = sdkOrFailure()
@@ -425,7 +499,25 @@ class ChitengS1OfficialPrinterClient(
         val heightMm: Int,
         val label: StoreItemLabelRow,
     ) {
-        fun toRawTspl(): String {
+        fun toCtplOperationSummary(): List<String> {
+            return listOf(
+                "clean",
+                "setSize($widthMm,$heightMm)",
+                "setPaperType(PaperType.Label)",
+                "setPrintMode(PrintMode.Label_Divide)",
+                "setPrintSpeed(2)",
+                "setPrintDensity(12)",
+                "drawText(category_short)",
+                "drawText(grade_or_pricing_type)",
+                "drawText(price_kes)",
+                "drawBarCode(CODE_128,machine_code)",
+                "drawText(machine_code)",
+                "print(1)",
+                "execute",
+            )
+        }
+
+        fun legacyRawTsplForDiagnostics(): String {
             val lines = if (templateSize == STORE_ITEM_PREVIEW_TEMPLATE_40X30) {
                 listOf(
                     "SIZE 40 mm,30 mm",
@@ -554,7 +646,14 @@ class ChitengS1OfficialPrinterClient(
         val priceKes: Int,
         val categoryShort: String,
         val grade: String,
-    )
+    ) {
+        fun shortHeaderText(): String {
+            return listOf(categoryShort, grade)
+                .filter { it.isNotBlank() }
+                .joinToString(" / ")
+                .take(30)
+        }
+    }
 
     data class ChitengOfficialPrintResult(
         val success: Boolean,

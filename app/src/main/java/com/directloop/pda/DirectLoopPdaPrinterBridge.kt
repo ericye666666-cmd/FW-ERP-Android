@@ -20,7 +20,6 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.io.OutputStream
-import java.nio.charset.Charset
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -63,6 +62,7 @@ class DirectLoopPdaPrinterBridge(
     private var lastPreviewTsplCommand = ""
     private var lastPreviewTsplSentAt = ""
     private var lastPreviewTsplBytes = 0
+    private var lastPreviewSdkOperations: List<String> = emptyList()
     private var previewPrintBusyUntilMs = 0L
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
@@ -302,7 +302,7 @@ class DirectLoopPdaPrinterBridge(
     fun printStoreItemLabelPreview(payloadJson: String): String {
         if (!isTrustedPage()) return untrustedStatus().toString()
 
-        lastProtocolTested = STORE_ITEM_LABEL_PREVIEW_TSPL_PROTOCOL
+        lastProtocolTested = STORE_ITEM_LABEL_PREVIEW_CTPL_PROTOCOL
         lastPrintResult = RESULT_FAILED
 
         val payload = try {
@@ -394,8 +394,7 @@ class DirectLoopPdaPrinterBridge(
         if (!isBluetoothEnabled(adapter)) {
             return previewPrintFailure("Bluetooth is disabled. Enable Bluetooth before printing STORE_ITEM preview labels.").toString()
         }
-        val bondedDevice = bondedDeviceForAddress(adapter, selectedPrinterAddress)
-        if (bondedDevice == null) {
+        if (bondedDeviceForAddress(adapter, selectedPrinterAddress) == null) {
             return previewPrintFailure("请先在 Android 系统蓝牙中完成配对后再连接。").toString()
         }
         val now = System.currentTimeMillis()
@@ -409,28 +408,37 @@ class DirectLoopPdaPrinterBridge(
         connectionStatus = STATUS_CONNECTING
 
         return try {
-            val tsplCommand = payload.toRawTspl()
-            val bytes = tsplCommand.toByteArray(TSPL_CHARSET)
-            lastPreviewTransport = PREVIEW_TRANSPORT_RAW_TSPL_SPP
+            lastPreviewTransport = PREVIEW_TRANSPORT_CTPL_SDK
             lastPreviewLabelSize = payload.templateSize
-            lastPreviewTsplCommand = tsplCommand
-            lastPreviewTsplSentAt = timestamp()
-            lastPreviewTsplBytes = bytes.size
-            sendRawTsplOverSpp(adapter, bondedDevice, bytes)
+            lastPreviewTsplCommand = ""
+            lastPreviewTsplSentAt = ""
+            lastPreviewTsplBytes = 0
+            lastPreviewSdkOperations = payload.toCtplOperationSummary()
+            val result = chitengOfficialPrinterClient.printStoreItemLabelPreview(
+                address = selectedPrinterAddress,
+                name = selectedPrinterName,
+                payload = payload,
+            )
             previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
-            connectionStatus = STATUS_CONNECTED
-            lastPrintResult = RESULT_SUCCESS
-            lastError = ""
             syncOfficialSdkSummary()
-            statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+            if (result.success) {
+                connectionStatus = STATUS_CONNECTED
+                lastPrintResult = RESULT_SUCCESS
+                lastError = ""
+                statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+            } else {
+                previewPrintBusyUntilMs = 0L
+                connectionStatus = STATUS_ERROR
+                previewPrintFailure(result.message).toString()
+            }
         } catch (error: SecurityException) {
             previewPrintBusyUntilMs = 0L
             connectionStatus = STATUS_ERROR
-            previewPrintFailure("Bluetooth permission denied while sending STORE_ITEM preview TSPL.").toString()
-        } catch (error: IOException) {
+            previewPrintFailure("Bluetooth permission denied while printing STORE_ITEM preview through Chiteng official SDK.").toString()
+        } catch (error: RuntimeException) {
             previewPrintBusyUntilMs = 0L
             connectionStatus = STATUS_ERROR
-            previewPrintFailure("STORE_ITEM preview TSPL write failed: ${error.message ?: "unknown error"}.").toString()
+            previewPrintFailure("STORE_ITEM preview CTPL print failed: ${error.message ?: "unknown error"}.").toString()
         }
     }
 
@@ -529,6 +537,7 @@ class DirectLoopPdaPrinterBridge(
             .put("last_preview_tspl_bytes", lastPreviewTsplBytes)
             .put("last_preview_tspl_command", lastPreviewTsplCommand)
             .put("last_preview_tspl_lines", tsplLines(lastPreviewTsplCommand))
+            .put("last_preview_sdk_operations", jsonArray(lastPreviewSdkOperations))
     }
 
     private fun supportedAppInfoMethods(): JSONArray {
@@ -546,6 +555,12 @@ class DirectLoopPdaPrinterBridge(
                 .split("\r\n")
                 .filter { it.isNotBlank() }
                 .forEach { line -> put(line) }
+        }
+    }
+
+    private fun jsonArray(values: List<String>): JSONArray {
+        return JSONArray().apply {
+            values.forEach { value -> put(value) }
         }
     }
 
@@ -804,41 +819,6 @@ class DirectLoopPdaPrinterBridge(
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendRawTsplOverSpp(
-        adapter: BluetoothAdapter,
-        bondedDevice: BluetoothDevice,
-        payload: ByteArray,
-    ) {
-        if (hasBluetoothScanPermission()) {
-            try {
-                adapter.cancelDiscovery()
-            } catch (_: SecurityException) {
-                // Connecting can continue even if discovery cancellation is denied.
-            }
-        }
-
-        val device = adapter.getRemoteDevice(selectedPrinterAddress)
-        val rawSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-        try {
-            rawSocket.connect()
-            rawSocket.outputStream.use { stream ->
-                stream.write(payload)
-                stream.flush()
-            }
-        } finally {
-            try {
-                rawSocket.close()
-            } catch (_: IOException) {
-                // Closing a one-shot print socket is best-effort.
-            }
-        }
-
-        if (selectedPrinterName.isBlank()) {
-            selectedPrinterName = bondedDevice.name.orEmpty()
-        }
-    }
-
-    @SuppressLint("MissingPermission")
     private fun bondedDeviceForAddress(adapter: BluetoothAdapter, address: String): BluetoothDevice? {
         return try {
             adapter.bondedDevices.firstOrNull { it.address == address }
@@ -1089,10 +1069,9 @@ class DirectLoopPdaPrinterBridge(
         private const val SOURCE_PAIRED = "paired"
         private const val SOURCE_DISCOVERED = "discovered"
         private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
-        private const val STORE_ITEM_LABEL_PREVIEW_TSPL_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_TSPL"
-        private const val PREVIEW_TRANSPORT_RAW_TSPL_SPP = "RAW_TSPL_SPP"
+        private const val STORE_ITEM_LABEL_PREVIEW_CTPL_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_CTPL"
+        private const val PREVIEW_TRANSPORT_CTPL_SDK = "CTPL_SDK"
         private const val PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L
-        private val TSPL_CHARSET: Charset = Charset.forName("GBK")
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"
         private const val RESULT_FAILED = "failed"
