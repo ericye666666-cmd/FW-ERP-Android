@@ -193,9 +193,9 @@ grep -q 'TSPL feeds paper but prints no content' "$README"
 grep -q 'printStoreItemLabelPreview(payloadJson)' "$README"
 grep -q 'Prints exactly one STORE_ITEM preview label' "$README"
 grep -q 'last_preview_transport' "$README"
-grep -q 'last_preview_tspl_command' "$README"
-grep -q 'STORE_ITEM_LABEL_PREVIEW_TSPL' "$README"
-grep -q 'RAW_TSPL_SPP' "$README"
+grep -q 'last_preview_sdk_operations' "$README"
+grep -q 'STORE_ITEM_LABEL_PREVIEW_CTPL' "$README"
+grep -q 'CTPL_SDK' "$README"
 grep -q 'No batch printing' "$README"
 grep -q 'No barcode generation in Android' "$README"
 grep -q 'printStoreItemLabelPreview(payloadJson)' "$ROOT_DIR/docs/chiteng-s1-integration-notes.md"
@@ -231,13 +231,15 @@ grep -q 'lastPreviewLabelSize' "$PRINTER_BRIDGE"
 grep -q 'lastPreviewTsplCommand' "$PRINTER_BRIDGE"
 grep -q 'lastPreviewTsplSentAt' "$PRINTER_BRIDGE"
 grep -q 'lastPreviewTsplBytes' "$PRINTER_BRIDGE"
-grep -q 'PREVIEW_TRANSPORT_RAW_TSPL_SPP' "$PRINTER_BRIDGE"
+grep -q 'lastPreviewSdkOperations' "$PRINTER_BRIDGE"
+grep -q 'PREVIEW_TRANSPORT_CTPL_SDK' "$PRINTER_BRIDGE"
 grep -q 'last_preview_transport' "$PRINTER_BRIDGE"
 grep -q 'last_preview_label_size' "$PRINTER_BRIDGE"
 grep -q 'last_preview_tspl_command' "$PRINTER_BRIDGE"
 grep -q 'last_preview_tspl_lines' "$PRINTER_BRIDGE"
 grep -q 'last_preview_tspl_sent_at' "$PRINTER_BRIDGE"
 grep -q 'last_preview_tspl_bytes' "$PRINTER_BRIDGE"
+grep -q 'last_preview_sdk_operations' "$PRINTER_BRIDGE"
 if grep -q 'fun printStoreItemLabels' "$PRINTER_BRIDGE"; then
   echo "PR #19 must not expose batch STORE_ITEM printing through printStoreItemLabels." >&2
   exit 1
@@ -302,13 +304,12 @@ grep -q 'drawBarCode' "$CHITENG_CLIENT"
 grep -q 'CODE_128' "$CHITENG_CLIENT"
 grep -q 'StoreItemLabelPreviewPayload' "$CHITENG_CLIENT"
 grep -q 'StoreItemLabelRow' "$CHITENG_CLIENT"
-grep -q 'toRawTspl' "$CHITENG_CLIENT"
-grep -q 'SIZE 40 mm,30 mm' "$CHITENG_CLIENT"
-grep -q 'SIZE 60 mm,40 mm' "$CHITENG_CLIENT"
-grep -Fq 'BARCODE 20,105,\"128\",70,1,0,2,2' "$CHITENG_CLIENT"
-grep -Fq 'BARCODE 32,145,\"128\",90,1,0,2,2' "$CHITENG_CLIENT"
-grep -q 'PRINT 1,1' "$CHITENG_CLIENT"
-grep -Fq 'separator = "\r\n", postfix = "\r\n"' "$CHITENG_CLIENT"
+grep -q 'printStoreItemLabelPreview' "$CHITENG_CLIENT"
+grep -q 'drawStoreItemPreviewLabel' "$CHITENG_CLIENT"
+grep -q 'setSize(payload.widthMm, payload.heightMm)' "$CHITENG_CLIENT"
+grep -q 'setPaperType(PaperType.Label)' "$CHITENG_CLIENT"
+grep -q 'setPrintMode(PrintMode.Label_Divide)' "$CHITENG_CLIENT"
+grep -q '.print(1)' "$CHITENG_CLIENT"
 grep -q 'Preview print only supports exactly one STORE_ITEM label.' "$CHITENG_CLIENT"
 grep -q 'machine_code' "$CHITENG_CLIENT"
 grep -q 'barcode_value' "$CHITENG_CLIENT"
@@ -317,18 +318,17 @@ grep -q 'category_short' "$CHITENG_CLIENT"
 grep -q 'label_template_size' "$CHITENG_CLIENT"
 grep -q 'startsWith("5")' "$CHITENG_CLIENT"
 grep -q 'grade or pricing_type is required.' "$CHITENG_CLIENT"
-grep -q 'STORE_ITEM_LABEL_PREVIEW_TSPL' "$PRINTER_BRIDGE"
-grep -q 'Charset.forName("GBK")' "$PRINTER_BRIDGE"
-grep -q 'sendRawTsplOverSpp' "$PRINTER_BRIDGE"
+grep -q 'STORE_ITEM_LABEL_PREVIEW_CTPL' "$PRINTER_BRIDGE"
+grep -q 'printStoreItemLabelPreview' "$PRINTER_BRIDGE"
 grep -q 'PREVIEW_PRINT_BUSY_WINDOW_MS = 8000L' "$PRINTER_BRIDGE"
 grep -q 'Printer is busy. Wait before printing again.' "$PRINTER_BRIDGE"
 if awk '
   /private fun printOfficialStoreItemLabelPreview/ { in_preview = 1 }
   in_preview && /private fun guardedStatus/ { in_preview = 0 }
-  in_preview && /(setBackpressure|drawBitmap|Label_Divide|GAPDETECT|FORMFEED|FEED)/ { found = 1 }
+  in_preview && /(sendRawTsplOverSpp|toRawTspl|Charset\.forName\("GBK"\)|GAPDETECT|FORMFEED|FEED)/ { found = 1 }
   END { exit found ? 0 : 1 }
 ' "$PRINTER_BRIDGE" >/dev/null; then
-  echo "STORE_ITEM raw TSPL preview must not use CTPL bitmap, backpressure, calibration, feed, or Label_Divide." >&2
+  echo "STORE_ITEM preview must not use raw TSPL/SPP, calibration, or feed commands." >&2
   exit 1
 fi
 if grep -q 'fun printStoreItemLabels' "$CHITENG_CLIENT"; then

@@ -646,7 +646,9 @@ multiple barcodes, or any internal source chain.
 Raw TSPL STORE_ITEM preview note:
 
 - Chiteng TSPL manual states 200 dpi uses 8 dots per millimeter.
-- The one-label STORE_ITEM preview path sends raw TSPL over Bluetooth SPP.
+- Field testing showed raw TSPL over Bluetooth SPP can feed blank labels on S1,
+  so raw TSPL is kept as diagnostic evidence rather than the active STORE_ITEM
+  preview print path.
 - Every TSPL command line must end with `\r\n`.
 - The raw TSPL is encoded with GBK before writing to the socket.
 - The raw TSPL path uses `SIZE`, `CLS`, `SPEED`, `DENSITY`, `DIRECTION`,
@@ -961,14 +963,16 @@ Recommended Android result shape:
   "selected_profile": "CHITENG_S1_OFFICIAL",
   "connection_status": "connected",
   "printer_online_status": "online",
-  "last_protocol_tested": "STORE_ITEM_LABEL_PREVIEW_TSPL",
+  "last_protocol_tested": "STORE_ITEM_LABEL_PREVIEW_CTPL",
+  "last_preview_transport": "CTPL_SDK",
   "last_print_result": "success",
   "last_error": ""
 }
 ```
 
-For preview diagnostics, `last_print_result=success` means raw TSPL bytes were
-written and flushed to the SPP socket, not business-confirmed production print.
+For preview diagnostics, `last_print_result=success` means the official CTPL SDK
+accepted/sent the one-label preview operation, not business-confirmed production
+print.
 
 ## Android Change Plan
 
