@@ -286,6 +286,18 @@ grep -q 'startsWith("5")' "$CHITENG_CLIENT"
 grep -q 'setPaperType(PaperType.Label)' "$CHITENG_CLIENT"
 grep -q 'setPrintMode(PrintMode.Label_Divide)' "$CHITENG_CLIENT"
 grep -q 'print(1)' "$CHITENG_CLIENT"
+grep -q 'buildStoreItemPreviewBitmap' "$CHITENG_CLIENT"
+grep -q 'drawCode128Barcode' "$CHITENG_CLIENT"
+grep -q 'drawBitmap' "$CHITENG_CLIENT"
+if awk '
+  /fun printStoreItemLabelPreview/ { in_preview = 1 }
+  in_preview && /fun verifyConnection/ { in_preview = 0 }
+  in_preview && /setBackpressure\(true\)/ { found = 1 }
+  END { exit found ? 0 : 1 }
+' "$CHITENG_CLIENT" >/dev/null; then
+  echo "STORE_ITEM one-label preview must not enable CTPL backpressure; it is for multi-label continuous flows." >&2
+  exit 1
+fi
 if grep -q 'fun printStoreItemLabels' "$CHITENG_CLIENT"; then
   echo "PR #19 must not implement batch STORE_ITEM printing in ChitengS1OfficialPrinterClient." >&2
   exit 1
