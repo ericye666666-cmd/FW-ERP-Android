@@ -277,6 +277,38 @@ class DirectLoopPdaPrinterBridge(
 
     @JavascriptInterface
     @Synchronized
+    fun printStoreItemLabels(payloadJson: String): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        lastProtocolTested = STORE_ITEM_LABEL_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+
+        val payload = try {
+            ChitengS1OfficialPrinterClient.StoreItemLabelPrintPayload.fromJson(payloadJson)
+        } catch (error: JSONException) {
+            return fail(
+                "STORE_ITEM label payload is invalid: ${error.message ?: "invalid JSON"}.",
+                printAttempt = true,
+            ).toString()
+        } catch (error: IllegalArgumentException) {
+            return fail(
+                "STORE_ITEM label payload is invalid: ${error.message ?: "invalid payload"}.",
+                printAttempt = true,
+            ).toString()
+        }
+
+        if (selectedProfile != DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL) {
+            return fail(
+                "STORE_ITEM labels require CHITENG_S1_OFFICIAL printer profile.",
+                printAttempt = true,
+            ).toString()
+        }
+
+        return printOfficialStoreItemLabels(payload)
+    }
+
+    @JavascriptInterface
+    @Synchronized
     fun getLastPrintResult(): String {
         return guardedStatus().toString()
     }
@@ -324,6 +356,52 @@ class DirectLoopPdaPrinterBridge(
             connectionStatus = STATUS_CONNECTED
             lastPrintResult = RESULT_SUCCESS
             lastError = ""
+            guardedStatus().toString()
+        } else {
+            connectionStatus = STATUS_ERROR
+            fail(result.message, printAttempt = true).toString()
+        }
+    }
+
+    private fun printOfficialStoreItemLabels(
+        payload: ChitengS1OfficialPrinterClient.StoreItemLabelPrintPayload,
+    ): String {
+        if (selectedPrinterAddress.isBlank()) {
+            return fail(
+                "No Bluetooth printer is selected. Select a paired Chiteng S1 printer before printing STORE_ITEM labels.",
+                printAttempt = true,
+            ).toString()
+        }
+
+        val adapter = bluetoothAdapter()
+            ?: return fail("Bluetooth adapter is not available on this device.", printAttempt = true).toString()
+        if (!ensureBluetoothConnectPermission()) return guardedStatus().toString()
+        if (!isBluetoothEnabled(adapter)) {
+            return fail("Bluetooth is disabled. Enable Bluetooth before printing STORE_ITEM labels.", printAttempt = true).toString()
+        }
+        if (!chitengOfficialPrinterClient.isSdkAvailable()) {
+            return fail("Chiteng official CTPL SDK is not available in this build.", printAttempt = true).toString()
+        }
+        if (bondedDeviceForAddress(adapter, selectedPrinterAddress) == null) {
+            return fail("请先在 Android 系统蓝牙中完成配对后再连接。", printAttempt = true).toString()
+        }
+
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+
+        val result = chitengOfficialPrinterClient.printStoreItemLabels(
+            address = selectedPrinterAddress,
+            name = selectedPrinterName,
+            payload = payload,
+        )
+
+        return if (result.success) {
+            connectionStatus = STATUS_CONNECTED
+            printerOnlineStatus = ONLINE_ONLINE
+            printerHealthCheckedAt = timestamp()
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            syncOfficialSdkSummary()
             guardedStatus().toString()
         } else {
             connectionStatus = STATUS_ERROR
@@ -914,6 +992,7 @@ class DirectLoopPdaPrinterBridge(
         private const val SOURCE_PAIRED = "paired"
         private const val SOURCE_DISCOVERED = "discovered"
         private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
+        private const val STORE_ITEM_LABEL_PROTOCOL = "STORE_ITEM_LABEL"
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"
         private const val RESULT_FAILED = "failed"

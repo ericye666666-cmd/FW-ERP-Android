@@ -10,10 +10,17 @@ import com.ctaiot.ctprinter.ctpl.param.BarCode
 import com.ctaiot.ctprinter.ctpl.param.PaperType
 import com.ctaiot.ctprinter.ctpl.param.PrintMode
 import com.ctaiot.ctprinter.ctpl.param.Rotate
+import org.json.JSONException
+import org.json.JSONObject
 import java.util.HashMap
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+
+private const val STORE_ITEM_LABEL_TEMPLATE_60X40 = "60x40"
+private const val STORE_ITEM_LABEL_TEMPLATE_40X30 = "40x30"
+private const val MAX_STORE_ITEM_LABELS_PER_PAYLOAD = 200
+private val STORE_ITEM_MACHINE_CODE_PATTERN = Regex("^\\d{6,32}$")
 
 class ChitengS1OfficialPrinterClient(
     private val application: Application,
@@ -142,6 +149,41 @@ class ChitengS1OfficialPrinterClient(
             failure("Bluetooth permission denied while printing through Chiteng official SDK.")
         } catch (error: RuntimeException) {
             failure("Chiteng official SDK diagnostic print failed: ${error.message ?: "unknown error"}.")
+        }
+    }
+
+    @Synchronized
+    fun printStoreItemLabels(
+        address: String,
+        name: String,
+        payload: StoreItemLabelPrintPayload,
+    ): ChitengOfficialPrintResult {
+        val connectResult = connect(address, name)
+        if (!connectResult.success) return connectResult
+
+        val sdk = sdkOrFailure() ?: return failure("Chiteng official CTPL SDK is not available.")
+
+        return try {
+            payload.labels.forEach { label ->
+                sdk.clean()
+                sdk.setBackpressure(true)
+                sdk
+                    .setSize(payload.widthMm, payload.heightMm)
+                    .setPaperType(PaperType.Label)
+                    .setPrintMode(PrintMode.Label_Divide)
+                    .setPrintSpeed(2)
+                    .setPrintDensity(12)
+                drawStoreItemLabel(sdk, payload, label)
+                sdk
+                    .print(1)
+                    .execute()
+            }
+
+            success("Chiteng official SDK STORE_ITEM labels were sent.")
+        } catch (error: SecurityException) {
+            failure("Bluetooth permission denied while printing STORE_ITEM labels through Chiteng official SDK.")
+        } catch (error: RuntimeException) {
+            failure("Chiteng official SDK STORE_ITEM print failed: ${error.message ?: "unknown error"}.")
         }
     }
 
@@ -291,6 +333,47 @@ class ChitengS1OfficialPrinterClient(
 
     fun lastSdkError(): String = lastError
 
+    private fun drawStoreItemLabel(
+        sdk: CTPL,
+        payload: StoreItemLabelPrintPayload,
+        label: StoreItemLabelRow,
+    ) {
+        if (payload.templateSize == STORE_ITEM_LABEL_TEMPLATE_40X30) {
+            val categoryAndGrade = "${label.categoryShort} / ${label.grade}"
+            sdk
+                .drawText(Point(16, 14), Rotate.Degree0, 1, 1, categoryAndGrade)
+                .drawText(Point(16, 56), Rotate.Degree0, 2, 2, "KES ${label.priceKes}")
+                .drawBarCode(
+                    Point(22, 116),
+                    56,
+                    BarCode.CODE_128,
+                    Paint.Align.LEFT,
+                    Rotate.Degree0,
+                    2,
+                    2,
+                    label.machineCode,
+                )
+                .drawText(Point(62, 184), Rotate.Degree0, 1, 1, label.machineCode)
+            return
+        }
+
+        sdk
+            .drawText(Point(24, 20), Rotate.Degree0, 1, 1, label.categoryShort)
+            .drawText(Point(410, 20), Rotate.Degree0, 1, 1, label.grade)
+            .drawText(Point(24, 74), Rotate.Degree0, 2, 2, "KES ${label.priceKes}")
+            .drawBarCode(
+                Point(34, 166),
+                74,
+                BarCode.CODE_128,
+                Paint.Align.LEFT,
+                Rotate.Degree0,
+                2,
+                2,
+                label.machineCode,
+            )
+            .drawText(Point(96, 250), Rotate.Degree0, 1, 1, label.machineCode)
+    }
+
     private fun initializeSdk(sdk: CTPL) {
         if (initialized) return
 
@@ -412,6 +495,104 @@ class ChitengS1OfficialPrinterClient(
             else -> "Chiteng official SDK connection failed with reason code $reason."
         }
     }
+
+    data class StoreItemLabelPrintPayload(
+        val templateSize: String,
+        val widthMm: Int,
+        val heightMm: Int,
+        val labels: List<StoreItemLabelRow>,
+    ) {
+        companion object {
+            fun fromJson(raw: String): StoreItemLabelPrintPayload {
+                val json = JSONObject(raw)
+                val printerProfile = json.optString("printer_profile").trim().uppercase(Locale.US)
+                if (printerProfile.isNotBlank() && printerProfile != "CHITENG_S1_OFFICIAL") {
+                    throw IllegalArgumentException("printer_profile must be CHITENG_S1_OFFICIAL.")
+                }
+
+                val templateSize = json.optString("label_template_size", STORE_ITEM_LABEL_TEMPLATE_60X40).trim().lowercase(Locale.US)
+                val widthMm: Int
+                val heightMm: Int
+                when (templateSize) {
+                    STORE_ITEM_LABEL_TEMPLATE_60X40 -> {
+                        widthMm = 60
+                        heightMm = 40
+                    }
+
+                    STORE_ITEM_LABEL_TEMPLATE_40X30 -> {
+                        widthMm = 40
+                        heightMm = 30
+                    }
+
+                    else -> throw IllegalArgumentException("label_template_size must be 60x40 or 40x30.")
+                }
+
+                val labelsJson = json.optJSONArray("labels")
+                    ?: throw JSONException("labels is required.")
+                if (labelsJson.length() == 0) {
+                    throw IllegalArgumentException("labels must not be empty.")
+                }
+                if (labelsJson.length() > MAX_STORE_ITEM_LABELS_PER_PAYLOAD) {
+                    throw IllegalArgumentException("labels exceeds $MAX_STORE_ITEM_LABELS_PER_PAYLOAD.")
+                }
+
+                val labels = mutableListOf<StoreItemLabelRow>()
+                for (index in 0 until labelsJson.length()) {
+                    val labelJson = labelsJson.optJSONObject(index)
+                        ?: throw JSONException("labels[$index] must be an object.")
+                    val machineCode = labelJson.optString("machine_code")
+                        .ifBlank { labelJson.optString("barcode_value") }
+                        .trim()
+                    if (!machineCode.matches(STORE_ITEM_MACHINE_CODE_PATTERN)) {
+                        throw IllegalArgumentException("labels[$index].machine_code must be numeric STORE_ITEM barcode content.")
+                    }
+
+                    val barcodeValue = labelJson.optString("barcode_value", machineCode).trim()
+                    if (barcodeValue.isNotBlank() && barcodeValue != machineCode) {
+                        throw IllegalArgumentException("labels[$index].barcode_value must equal machine_code.")
+                    }
+
+                    val priceKes = labelJson.optInt("price_kes", -1)
+                    if (priceKes < 0) {
+                        throw IllegalArgumentException("labels[$index].price_kes is required.")
+                    }
+
+                    labels += StoreItemLabelRow(
+                        machineCode = machineCode,
+                        priceKes = priceKes,
+                        categoryShort = cleanLabelText(labelJson.optString("category_short"), 24, "ITEM"),
+                        grade = cleanLabelText(
+                            labelJson.optString("grade").ifBlank { labelJson.optString("pricing_type") },
+                            8,
+                            "-",
+                        ),
+                    )
+                }
+
+                return StoreItemLabelPrintPayload(
+                    templateSize = templateSize,
+                    widthMm = widthMm,
+                    heightMm = heightMm,
+                    labels = labels,
+                )
+            }
+
+            private fun cleanLabelText(value: String, maxLength: Int, fallback: String): String {
+                val cleaned = value
+                    .trim()
+                    .replace(Regex("\\s+"), " ")
+                    .take(maxLength)
+                return cleaned.ifBlank { fallback }
+            }
+        }
+    }
+
+    data class StoreItemLabelRow(
+        val machineCode: String,
+        val priceKes: Int,
+        val categoryShort: String,
+        val grade: String,
+    )
 
     data class ChitengOfficialPrintResult(
         val success: Boolean,
