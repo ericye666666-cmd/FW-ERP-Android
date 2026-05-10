@@ -469,6 +469,57 @@ class DirectLoopPdaPrinterBridge(
 
     @JavascriptInterface
     @Synchronized
+    fun printK300CpclCode128Test(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        val command = buildK300CpclCode128TestCommand()
+        return sendOneShotK300SppDiagnostic(
+            protocol = K300_CPCL_CODE128_TEST_PROTOCOL,
+            command = command,
+            bytes = command.toByteArray(Charset.forName("GBK")),
+            operations = listOf(
+                "open_spp_socket",
+                "write_cpcl_code128_test",
+                "flush",
+                "close_spp_socket",
+            ),
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300CpclStoreItemPreview(payloadJson: String): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        lastProtocolTested = K300_CPCL_STORE_ITEM_PREVIEW_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+
+        val payload = try {
+            UrovoK300PrinterManagerClient.StoreItemLabelPreviewPayload.fromJson(payloadJson)
+        } catch (error: JSONException) {
+            return previewPrintFailure("K300 CPCL STORE_ITEM preview payload is invalid: ${error.message ?: "invalid JSON"}.")
+                .toString()
+        } catch (error: IllegalArgumentException) {
+            return previewPrintFailure("K300 CPCL STORE_ITEM preview payload is invalid: ${error.message ?: "invalid payload"}.")
+                .toString()
+        }
+
+        val command = buildK300CpclStoreItemPreviewCommand(payload)
+        return sendOneShotK300SppDiagnostic(
+            protocol = K300_CPCL_STORE_ITEM_PREVIEW_PROTOCOL,
+            command = command,
+            bytes = command.toByteArray(Charset.forName("GBK")),
+            operations = listOf(
+                "open_spp_socket",
+                "write_cpcl_store_item_preview",
+                "flush",
+                "close_spp_socket",
+            ),
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
     fun printK300TsplMinText(): String {
         if (!isTrustedPage()) return untrustedStatus().toString()
 
@@ -823,6 +874,32 @@ class DirectLoopPdaPrinterBridge(
             "! 0 200 200 240 1",
             "TEXT 4 0 20 30 K300 CPCL TEST",
             "TEXT 4 0 20 70 5261300000038",
+            "PRINT",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildK300CpclCode128TestCommand(): String {
+        val lines = listOf(
+            "! 0 200 200 240 1",
+            "TEXT 4 0 20 20 CPCL CODE128 TEST",
+            "BARCODE 128 2 1 70 20 70 5261300000038",
+            "TEXT 4 0 20 155 5261300000038",
+            "PRINT",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildK300CpclStoreItemPreviewCommand(
+        payload: UrovoK300PrinterManagerClient.StoreItemLabelPreviewPayload,
+    ): String {
+        val label = payload.label
+        val lines = listOf(
+            "! 0 200 200 240 1",
+            "TEXT 4 0 20 18 ${label.shortHeaderText()}",
+            "TEXT 7 0 20 50 KES ${label.priceKes}",
+            "BARCODE 128 2 1 70 20 105 ${label.machineCode}",
+            "TEXT 4 0 35 190 ${label.machineCode}",
             "PRINT",
         )
         return lines.joinToString("\r\n", postfix = "\r\n")
@@ -1251,6 +1328,8 @@ class DirectLoopPdaPrinterBridge(
             .put("printUrovoK300StoreItemPreview")
             .put("printK300EscposMinText")
             .put("printK300CpclMinText")
+            .put("printK300CpclCode128Test")
+            .put("printK300CpclStoreItemPreview")
             .put("printK300TsplMinText")
             .put("printK300TsplBlackBox")
             .put("testK300SppConnection")
@@ -1888,6 +1967,8 @@ class DirectLoopPdaPrinterBridge(
         private const val UROVO_K300_STORE_ITEM_PREVIEW_PROTOCOL = "UROVO_K300_STORE_ITEM_PREVIEW"
         private const val K300_ESCPOS_MIN_TEXT_PROTOCOL = "K300_ESCPOS_MIN_TEXT"
         private const val K300_CPCL_MIN_TEXT_PROTOCOL = "K300_CPCL_MIN_TEXT"
+        private const val K300_CPCL_CODE128_TEST_PROTOCOL = "K300_CPCL_CODE128_TEST"
+        private const val K300_CPCL_STORE_ITEM_PREVIEW_PROTOCOL = "K300_CPCL_STORE_ITEM_PREVIEW"
         private const val K300_TSPL_MIN_TEXT_PROTOCOL = "K300_TSPL_MIN_TEXT"
         private const val K300_TSPL_BLACK_BOX_PROTOCOL = "K300_TSPL_BLACK_BOX"
         private const val K300_SPP_CONNECT_TEST_PROTOCOL = "K300_SPP_CONNECT_TEST"

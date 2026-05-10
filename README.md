@@ -92,6 +92,8 @@ Supported bridge methods:
 - `printUrovoK300StoreItemPreview(payloadJson)`
 - `printK300EscposMinText()`
 - `printK300CpclMinText()`
+- `printK300CpclCode128Test()`
+- `printK300CpclStoreItemPreview(payloadJson)`
 - `printK300TsplMinText()`
 - `printK300TsplBlackBox()`
 - `testK300SppConnection()`
@@ -125,6 +127,8 @@ and does not expose secrets, printer credentials, or business data:
     "printUrovoK300StoreItemPreview",
     "printK300EscposMinText",
     "printK300CpclMinText",
+    "printK300CpclCode128Test",
+    "printK300CpclStoreItemPreview",
     "printK300TsplMinText",
     "printK300TsplBlackBox",
     "testK300SppConnection"
@@ -288,6 +292,19 @@ print success:
 - `printK300CpclMinText()` sends CPCL with CRLF endings:
   `! 0 200 200 240 1`, two `TEXT` rows (`K300 CPCL TEST` and
   `5261300000038`), and `PRINT`.
+- `printK300CpclCode128Test()` sends one 40x30 CPCL Code128 diagnostic label:
+  `! 0 200 200 240 1`, `TEXT 4 0 20 20 CPCL CODE128 TEST`,
+  `BARCODE 128 2 1 70 20 70 5261300000038`, the machine-code text row, and
+  `PRINT`. It reports `K300_CPCL_CODE128_TEST`, `K300_BLUETOOTH_SPP`, and
+  operations including `write_cpcl_code128_test`.
+- `printK300CpclStoreItemPreview(payloadJson)` validates exactly one
+  FW-ERP-provided `UROVO_K300` 40x30 STORE_ITEM preview payload and sends CPCL:
+  `TEXT 4 0 20 18 {category_short / grade}`, `TEXT 7 0 20 50 KES {price}`,
+  `BARCODE 128 2 1 70 20 105 {machine_code}`, machine-code text, and `PRINT`.
+  It reports `K300_CPCL_STORE_ITEM_PREVIEW`, `K300_BLUETOOTH_SPP`, and
+  operations including `write_cpcl_store_item_preview`. Android does not
+  generate STORE_ITEM barcodes, does not batch print, and does not mark any
+  print job printed or sticker-confirmed.
 - `printK300TsplMinText()` sends TSPL with CRLF endings:
   `SIZE 40 mm,30 mm`, `CLS`, two `TEXT` rows (`K300 TSPL TEST` and
   `5261300000038`), and `PRINT 1,1`.
@@ -308,9 +325,9 @@ the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `STORE_ITEM_LABEL_PREVIEW_TSPL`. Minimal raw probes use
 `S1_RAW_TSPL_MIN_TEXT`, `S1_RAW_TSPL_BLACK_BOX`, `UROVO_K300_MIN_TEXT`,
 `UROVO_K300_BLACK_BOX`, `UROVO_K300_STORE_ITEM_PREVIEW`,
-`K300_ESCPOS_MIN_TEXT`, `K300_CPCL_MIN_TEXT`, `K300_TSPL_MIN_TEXT`, or
-`K300_TSPL_BLACK_BOX`. The external K300 SPP connection probe reports
-`K300_SPP_CONNECT_TEST`.
+`K300_ESCPOS_MIN_TEXT`, `K300_CPCL_MIN_TEXT`, `K300_CPCL_CODE128_TEST`,
+`K300_CPCL_STORE_ITEM_PREVIEW`, `K300_TSPL_MIN_TEXT`, or `K300_TSPL_BLACK_BOX`.
+The external K300 SPP connection probe reports `K300_SPP_CONNECT_TEST`.
 `last_preview_transport` should be one of `CTPL_SDK_NO_LABEL_MODE`,
 `CTPL_SDK_BITMAP_DEMO`, `RAW_TSPL_SPP`, `UROVO_PRINTER_MANAGER`, or
 `K300_BLUETOOTH_SPP`. `last_preview_sdk_operations` shows CTPL, Urovo
@@ -353,6 +370,8 @@ Contract summary:
 - Adds `printUrovoK300StoreItemPreview(payloadJson)`.
 - Adds `printK300EscposMinText()`.
 - Adds `printK300CpclMinText()`.
+- Adds `printK300CpclCode128Test()`.
+- Adds `printK300CpclStoreItemPreview(payloadJson)`.
 - Adds `printK300TsplMinText()`.
 - Adds `printK300TsplBlackBox()`.
 - Adds `testK300SppConnection()`.
