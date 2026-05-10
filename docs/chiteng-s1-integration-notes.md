@@ -572,12 +572,19 @@ marking any real print job printed.
 
 Expected behavior:
 
-- Print only the first label or an explicit preview label from the payload.
-- Add a visible diagnostic marker if product wants it, for example
-  `PREVIEW` or `TEST`, until Eric approves production use.
-- Use the same layout engine intended for production.
+- Exposed to FW-ERP as `printStoreItemLabelPreview(payloadJson)`.
+- Print exactly one STORE_ITEM preview label from the payload.
+- Reject the payload with `Preview print only supports exactly one STORE_ITEM label.`
+  when `labels.length` is not exactly 1.
+- Support only 60x40 and 40x30 gap labels.
+- Require `printer_profile=CHITENG_S1_OFFICIAL`.
+- Requirement phrase for review: machine_code must be numeric and start with 5.
+- Require `barcode_value` to equal `machine_code`.
+- Use Code128 with barcode value equal to the STORE_ITEM `machine_code`.
 - Return SDK/transport result and printer status.
 - Do not change FW-ERP business print status.
+- Do not generate STORE_ITEM barcodes in Android.
+- Do not expose batch printing in this PR.
 
 ### `printStoreItemBatchDiagnostic(jsonPayload)`
 
@@ -621,6 +628,20 @@ label.barcode_value || label.machine_code
 ```
 
 Android must not generate, transform, or infer business barcode values.
+
+For the PR #19 one-label preview bridge, the physical customer label must only
+print:
+
+- `category_short`
+- `grade` or `pricing_type`
+- `price_kes`
+- one Code128 barcode
+- barcode value = `STORE_ITEM machine_code`
+- `machine_code` text below the barcode
+
+The preview label must not print SDO, SDP, SDB, LPK, `transfer_no`,
+`pricing_batch_id`, `source_sdp`, `store_code`, `display_code`, QR code,
+multiple barcodes, or any internal source chain.
 
 ### 60x40 Standard Label
 
