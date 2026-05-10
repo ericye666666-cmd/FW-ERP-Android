@@ -94,6 +94,7 @@ Supported bridge methods:
 - `printK300CpclMinText()`
 - `printK300TsplMinText()`
 - `printK300TsplBlackBox()`
+- `testK300SppConnection()`
 - `getLastPrintResult()`
 
 `getAppInfo()` is the non-printing bridge version probe used by FW-ERP login
@@ -125,7 +126,8 @@ and does not expose secrets, printer credentials, or business data:
     "printK300EscposMinText",
     "printK300CpclMinText",
     "printK300TsplMinText",
-    "printK300TsplBlackBox"
+    "printK300TsplBlackBox",
+    "testK300SppConnection"
   ]
 }
 ```
@@ -134,7 +136,9 @@ and does not expose secrets, printer credentials, or business data:
 `discovered_printer_count`, `discovered_printers`, `printer_online_status`,
 `printer_health_checked_at`, official Chiteng SDK health fields, and Urovo K300
 PrinterManager fields such as `urovo_printer_available`,
-`urovo_last_status_code`, and `urovo_last_status_text`. Discovery uses Android
+`urovo_last_status_code`, and `urovo_last_status_text`. External K300 Bluetooth
+SPP diagnostics also report `k300_spp_available`,
+`k300_spp_last_checked_at`, and `k300_spp_last_error`. Discovery uses Android
 Bluetooth Classic search, includes already paired printers, deduplicates by
 Bluetooth address, and times out after a short scan window. Unpaired discovered
 printers must be paired in Android system Bluetooth before Bluetooth-based
@@ -233,7 +237,8 @@ instead of queueing another feed.
 
 For Urovo K300 diagnostics, Android uses `android.device.PrinterManager`
 through reflection so the debug APK still builds on non-Urovo CI machines. The
-Urovo profile does not depend on a Bluetooth SPP socket:
+PrinterManager-specific diagnostic methods do not depend on a Bluetooth SPP
+socket:
 
 - `getUrovoPrinterStatus()` calls PrinterManager `open`, `getStatus`, and
   `close`, then updates `urovo_printer_available`, `urovo_last_status_code`,
@@ -264,6 +269,17 @@ UUID `00001101-0000-1000-8000-00805F9B34FB`, write bytes, flush, wait briefly,
 and close the socket. They do not keep a socket open and do not claim physical
 print success:
 
+- `connectPrinter({"profile":"UROVO_K300", ...})` uses the external K300 SPP
+  connection probe instead of PrinterManager. It saves the selected printer,
+  opens a one-shot SPP socket, writes only ESC `@` bytes (`1B 40`), flushes,
+  waits 300 ms, and closes the socket. It reports `K300_SPP_CONNECT_TEST`,
+  `K300_BLUETOOTH_SPP`, `last_preview_tspl_bytes = 2`, and operations
+  including `write_esc_init`. No visible print content is expected.
+- `testK300SppConnection()` runs the same selected-printer SPP probe directly
+  from diagnostics. On success it sets `connection_status = connected`,
+  leaves `printer_online_status = unknown`, and sets
+  `k300_spp_available = true`. On failure it sets `connection_status = error`
+  and records `k300_spp_last_error`.
 - `printK300EscposMinText()` sends ESC/POS bytes (`ESC @`, `K300 ESC/POS TEST`,
   `5261300000038`, and blank lines). It reports
   `K300_ESCPOS_MIN_TEXT`, `K300_BLUETOOTH_SPP`, an empty
@@ -293,7 +309,8 @@ the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `S1_RAW_TSPL_MIN_TEXT`, `S1_RAW_TSPL_BLACK_BOX`, `UROVO_K300_MIN_TEXT`,
 `UROVO_K300_BLACK_BOX`, `UROVO_K300_STORE_ITEM_PREVIEW`,
 `K300_ESCPOS_MIN_TEXT`, `K300_CPCL_MIN_TEXT`, `K300_TSPL_MIN_TEXT`, or
-`K300_TSPL_BLACK_BOX`.
+`K300_TSPL_BLACK_BOX`. The external K300 SPP connection probe reports
+`K300_SPP_CONNECT_TEST`.
 `last_preview_transport` should be one of `CTPL_SDK_NO_LABEL_MODE`,
 `CTPL_SDK_BITMAP_DEMO`, `RAW_TSPL_SPP`, `UROVO_PRINTER_MANAGER`, or
 `K300_BLUETOOTH_SPP`. `last_preview_sdk_operations` shows CTPL, Urovo
@@ -338,6 +355,7 @@ Contract summary:
 - Adds `printK300CpclMinText()`.
 - Adds `printK300TsplMinText()`.
 - Adds `printK300TsplBlackBox()`.
+- Adds `testK300SppConnection()`.
 - Prints exactly one STORE_ITEM preview label.
 - Supports 60x40 and 40x30 gap labels.
 - Requires `machine_code` to be numeric and start with `5`.
