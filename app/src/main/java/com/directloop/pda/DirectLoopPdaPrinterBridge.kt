@@ -472,17 +472,58 @@ class DirectLoopPdaPrinterBridge(
     fun printK300CpclCode128Test(): String {
         if (!isTrustedPage()) return untrustedStatus().toString()
 
-        val command = buildK300CpclCode128TestCommand()
-        return sendOneShotK300SppDiagnostic(
+        return sendK300CpclCode128Variant(
             protocol = K300_CPCL_CODE128_TEST_PROTOCOL,
-            command = command,
-            bytes = command.toByteArray(Charset.forName("GBK")),
-            operations = listOf(
-                "open_spp_socket",
-                "write_cpcl_code128_test",
-                "flush",
-                "close_spp_socket",
-            ),
+            command = buildK300CpclCode128TestCommand(),
+            writeOperation = "write_cpcl_code128_test",
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300CpclCode128WideTest(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        return sendK300CpclCode128Variant(
+            protocol = K300_CPCL_CODE128_WIDE_TEST_PROTOCOL,
+            command = buildK300CpclCode128WideTestCommand(),
+            writeOperation = "write_cpcl_code128_wide_test",
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300CpclCode128TallTest(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        return sendK300CpclCode128Variant(
+            protocol = K300_CPCL_CODE128_TALL_TEST_PROTOCOL,
+            command = buildK300CpclCode128TallTestCommand(),
+            writeOperation = "write_cpcl_code128_tall_test",
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300CpclCode128QuietZoneTest(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        return sendK300CpclCode128Variant(
+            protocol = K300_CPCL_CODE128_QUIET_ZONE_TEST_PROTOCOL,
+            command = buildK300CpclCode128QuietZoneTestCommand(),
+            writeOperation = "write_cpcl_code128_quiet_zone_test",
+        )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300CpclCode128CompactTopTest(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        return sendK300CpclCode128Variant(
+            protocol = K300_CPCL_CODE128_COMPACT_TOP_TEST_PROTOCOL,
+            command = buildK300CpclCode128CompactTopTestCommand(),
+            writeOperation = "write_cpcl_code128_compact_top_test",
         )
     }
 
@@ -890,6 +931,50 @@ class DirectLoopPdaPrinterBridge(
         return lines.joinToString("\r\n", postfix = "\r\n")
     }
 
+    private fun buildK300CpclCode128WideTestCommand(): String {
+        val lines = listOf(
+            "! 0 200 200 240 1",
+            "TEXT 4 0 20 15 CODE128 WIDE",
+            "BARCODE 128 3 1 90 15 55 5261300000038",
+            "TEXT 4 0 35 155 5261300000038",
+            "PRINT",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildK300CpclCode128TallTestCommand(): String {
+        val lines = listOf(
+            "! 0 200 200 240 1",
+            "TEXT 4 0 20 15 CODE128 TALL",
+            "BARCODE 128 2 1 100 15 55 5261300000038",
+            "TEXT 4 0 35 170 5261300000038",
+            "PRINT",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildK300CpclCode128QuietZoneTestCommand(): String {
+        val lines = listOf(
+            "! 0 200 200 240 1",
+            "TEXT 4 0 30 15 CODE128 QUIET",
+            "BARCODE 128 2 1 85 35 60 5261300000038",
+            "TEXT 4 0 55 160 5261300000038",
+            "PRINT",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
+    private fun buildK300CpclCode128CompactTopTestCommand(): String {
+        val lines = listOf(
+            "! 0 200 200 240 1",
+            "BARCODE 128 2 1 85 20 25 5261300000038",
+            "TEXT 4 0 45 125 5261300000038",
+            "TEXT 4 0 20 170 CPCL SCAN TEST",
+            "PRINT",
+        )
+        return lines.joinToString("\r\n", postfix = "\r\n")
+    }
+
     private fun buildK300CpclStoreItemPreviewCommand(
         payload: UrovoK300PrinterManagerClient.StoreItemLabelPreviewPayload,
     ): String {
@@ -1020,6 +1105,24 @@ class DirectLoopPdaPrinterBridge(
             connectionStatus = STATUS_ERROR
             previewPrintFailure("K300 Bluetooth SPP diagnostic failed: ${error.message ?: "unknown error"}.").toString()
         }
+    }
+
+    private fun sendK300CpclCode128Variant(
+        protocol: String,
+        command: String,
+        writeOperation: String,
+    ): String {
+        return sendOneShotK300SppDiagnostic(
+            protocol = protocol,
+            command = command,
+            bytes = command.toByteArray(Charset.forName("GBK")),
+            operations = listOf(
+                "open_spp_socket",
+                writeOperation,
+                "flush",
+                "close_spp_socket",
+            ),
+        )
     }
 
     private fun sendOneShotRawS1DiagnosticTspl(
@@ -1329,6 +1432,10 @@ class DirectLoopPdaPrinterBridge(
             .put("printK300EscposMinText")
             .put("printK300CpclMinText")
             .put("printK300CpclCode128Test")
+            .put("printK300CpclCode128WideTest")
+            .put("printK300CpclCode128TallTest")
+            .put("printK300CpclCode128QuietZoneTest")
+            .put("printK300CpclCode128CompactTopTest")
             .put("printK300CpclStoreItemPreview")
             .put("printK300TsplMinText")
             .put("printK300TsplBlackBox")
@@ -1968,6 +2075,10 @@ class DirectLoopPdaPrinterBridge(
         private const val K300_ESCPOS_MIN_TEXT_PROTOCOL = "K300_ESCPOS_MIN_TEXT"
         private const val K300_CPCL_MIN_TEXT_PROTOCOL = "K300_CPCL_MIN_TEXT"
         private const val K300_CPCL_CODE128_TEST_PROTOCOL = "K300_CPCL_CODE128_TEST"
+        private const val K300_CPCL_CODE128_WIDE_TEST_PROTOCOL = "K300_CPCL_CODE128_WIDE_TEST"
+        private const val K300_CPCL_CODE128_TALL_TEST_PROTOCOL = "K300_CPCL_CODE128_TALL_TEST"
+        private const val K300_CPCL_CODE128_QUIET_ZONE_TEST_PROTOCOL = "K300_CPCL_CODE128_QUIET_ZONE_TEST"
+        private const val K300_CPCL_CODE128_COMPACT_TOP_TEST_PROTOCOL = "K300_CPCL_CODE128_COMPACT_TOP_TEST"
         private const val K300_CPCL_STORE_ITEM_PREVIEW_PROTOCOL = "K300_CPCL_STORE_ITEM_PREVIEW"
         private const val K300_TSPL_MIN_TEXT_PROTOCOL = "K300_TSPL_MIN_TEXT"
         private const val K300_TSPL_BLACK_BOX_PROTOCOL = "K300_TSPL_BLACK_BOX"

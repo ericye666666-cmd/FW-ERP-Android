@@ -93,6 +93,10 @@ Supported bridge methods:
 - `printK300EscposMinText()`
 - `printK300CpclMinText()`
 - `printK300CpclCode128Test()`
+- `printK300CpclCode128WideTest()`
+- `printK300CpclCode128TallTest()`
+- `printK300CpclCode128QuietZoneTest()`
+- `printK300CpclCode128CompactTopTest()`
 - `printK300CpclStoreItemPreview(payloadJson)`
 - `printK300TsplMinText()`
 - `printK300TsplBlackBox()`
@@ -128,6 +132,10 @@ and does not expose secrets, printer credentials, or business data:
     "printK300EscposMinText",
     "printK300CpclMinText",
     "printK300CpclCode128Test",
+    "printK300CpclCode128WideTest",
+    "printK300CpclCode128TallTest",
+    "printK300CpclCode128QuietZoneTest",
+    "printK300CpclCode128CompactTopTest",
     "printK300CpclStoreItemPreview",
     "printK300TsplMinText",
     "printK300TsplBlackBox",
@@ -297,6 +305,27 @@ print success:
   `BARCODE 128 2 1 70 20 70 5261300000038`, the machine-code text row, and
   `PRINT`. It reports `K300_CPCL_CODE128_TEST`, `K300_BLUETOOTH_SPP`, and
   operations including `write_cpcl_code128_test`.
+- `printK300CpclCode128WideTest()` sends a wider Code128 variant:
+  `TEXT 4 0 20 15 CODE128 WIDE`,
+  `BARCODE 128 3 1 90 15 55 5261300000038`, machine-code text, and `PRINT`.
+  It reports `K300_CPCL_CODE128_WIDE_TEST` and operations including
+  `write_cpcl_code128_wide_test`.
+- `printK300CpclCode128TallTest()` sends a taller Code128 variant:
+  `TEXT 4 0 20 15 CODE128 TALL`,
+  `BARCODE 128 2 1 100 15 55 5261300000038`, machine-code text, and `PRINT`.
+  It reports `K300_CPCL_CODE128_TALL_TEST` and operations including
+  `write_cpcl_code128_tall_test`.
+- `printK300CpclCode128QuietZoneTest()` sends a Code128 variant with more left
+  quiet zone: `TEXT 4 0 30 15 CODE128 QUIET`,
+  `BARCODE 128 2 1 85 35 60 5261300000038`, machine-code text, and `PRINT`.
+  It reports `K300_CPCL_CODE128_QUIET_ZONE_TEST` and operations including
+  `write_cpcl_code128_quiet_zone_test`.
+- `printK300CpclCode128CompactTopTest()` moves the Code128 barcode toward the
+  top of the 40x30 label:
+  `BARCODE 128 2 1 85 20 25 5261300000038`, machine-code text,
+  `TEXT 4 0 20 170 CPCL SCAN TEST`, and `PRINT`. It reports
+  `K300_CPCL_CODE128_COMPACT_TOP_TEST` and operations including
+  `write_cpcl_code128_compact_top_test`.
 - `printK300CpclStoreItemPreview(payloadJson)` validates exactly one
   FW-ERP-provided `UROVO_K300` 40x30 STORE_ITEM preview payload and sends CPCL:
   `TEXT 4 0 20 18 {category_short / grade}`, `TEXT 7 0 20 50 KES {price}`,
@@ -326,6 +355,8 @@ the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `S1_RAW_TSPL_MIN_TEXT`, `S1_RAW_TSPL_BLACK_BOX`, `UROVO_K300_MIN_TEXT`,
 `UROVO_K300_BLACK_BOX`, `UROVO_K300_STORE_ITEM_PREVIEW`,
 `K300_ESCPOS_MIN_TEXT`, `K300_CPCL_MIN_TEXT`, `K300_CPCL_CODE128_TEST`,
+`K300_CPCL_CODE128_WIDE_TEST`, `K300_CPCL_CODE128_TALL_TEST`,
+`K300_CPCL_CODE128_QUIET_ZONE_TEST`, `K300_CPCL_CODE128_COMPACT_TOP_TEST`,
 `K300_CPCL_STORE_ITEM_PREVIEW`, `K300_TSPL_MIN_TEXT`, or `K300_TSPL_BLACK_BOX`.
 The external K300 SPP connection probe reports `K300_SPP_CONNECT_TEST`.
 `last_preview_transport` should be one of `CTPL_SDK_NO_LABEL_MODE`,
@@ -371,6 +402,10 @@ Contract summary:
 - Adds `printK300EscposMinText()`.
 - Adds `printK300CpclMinText()`.
 - Adds `printK300CpclCode128Test()`.
+- Adds `printK300CpclCode128WideTest()`.
+- Adds `printK300CpclCode128TallTest()`.
+- Adds `printK300CpclCode128QuietZoneTest()`.
+- Adds `printK300CpclCode128CompactTopTest()`.
 - Adds `printK300CpclStoreItemPreview(payloadJson)`.
 - Adds `printK300TsplMinText()`.
 - Adds `printK300TsplBlackBox()`.
