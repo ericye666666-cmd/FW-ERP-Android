@@ -57,6 +57,7 @@ class DirectLoopPdaPrinterBridge(
     private var lastError = ""
     private var lastProtocolTested = ""
     private var lastPrintResult = RESULT_NONE
+    private var previewPrintBusyUntilMs = 0L
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
     private val chitengOfficialPrinterClient = ChitengS1OfficialPrinterClient(activity.application)
@@ -292,6 +293,11 @@ class DirectLoopPdaPrinterBridge(
             return previewPrintFailure("STORE_ITEM preview label payload is invalid: ${error.message ?: "invalid payload"}.")
                 .toString()
         }
+        lastProtocolTested = if (payload.isCoordinateTest()) {
+            STORE_ITEM_LABEL_PREVIEW_COORDINATE_TEST_PROTOCOL
+        } else {
+            STORE_ITEM_LABEL_PREVIEW_PROTOCOL
+        }
 
         if (selectedProfile != DirectLoopPrinterProfile.CHITENG_S1_OFFICIAL) {
             return previewPrintFailure("STORE_ITEM preview labels require CHITENG_S1_OFFICIAL printer profile.")
@@ -378,7 +384,12 @@ class DirectLoopPdaPrinterBridge(
         if (bondedDeviceForAddress(adapter, selectedPrinterAddress) == null) {
             return previewPrintFailure("请先在 Android 系统蓝牙中完成配对后再连接。").toString()
         }
+        val now = System.currentTimeMillis()
+        if (now < previewPrintBusyUntilMs) {
+            return previewPrintFailure("Printer is busy. Wait before printing again.").toString()
+        }
 
+        previewPrintBusyUntilMs = now + PREVIEW_PRINT_BUSY_WINDOW_MS
         closeSocket()
         connectionStatus = STATUS_CONNECTING
 
@@ -389,12 +400,14 @@ class DirectLoopPdaPrinterBridge(
         )
 
         return if (result.success) {
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
             connectionStatus = STATUS_CONNECTED
             lastPrintResult = RESULT_SUCCESS
             lastError = ""
             syncOfficialSdkSummary()
             statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
         } else {
+            previewPrintBusyUntilMs = 0L
             connectionStatus = STATUS_ERROR
             previewPrintFailure(result.message).toString()
         }
@@ -996,6 +1009,8 @@ class DirectLoopPdaPrinterBridge(
         private const val SOURCE_DISCOVERED = "discovered"
         private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
         private const val STORE_ITEM_LABEL_PREVIEW_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW"
+        private const val STORE_ITEM_LABEL_PREVIEW_COORDINATE_TEST_PROTOCOL = "STORE_ITEM_LABEL_PREVIEW_COORDINATE_TEST"
+        private const val PREVIEW_PRINT_BUSY_WINDOW_MS = 3500L
         private const val RESULT_NONE = "none"
         private const val RESULT_SUCCESS = "success"
         private const val RESULT_FAILED = "failed"

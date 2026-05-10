@@ -147,6 +147,13 @@ it does not generate or transform STORE_ITEM barcodes. No batch printing is
 allowed, no FW-ERP print job is marked printed, and no sticker confirmation is
 written by Android.
 
+For the Chiteng S1 official SDK path, each preview print resets the CTPL command
+buffer, sets label/gap mode, draws one exact-size bitmap, and sends `print(1)`.
+The bridge deliberately does not enable CTPL backpressure for this one-label
+path. If a second preview request arrives while the previous label is likely
+still moving, the bridge returns `Printer is busy. Wait before printing again.`
+instead of queueing another feed.
+
 Required preview payload shape:
 
 ```json
@@ -167,6 +174,11 @@ Required preview payload shape:
   ]
 }
 ```
+
+For physical positioning diagnostics only, the same one-label bridge accepts
+`"debug_template": "coordinate_test"` with a 40x30 `preview_one` payload. That
+diagnostic prints one bordered 40x30 coordinate label; it is not batch printing
+and does not change FW-ERP print-job state.
 
 Contract summary:
 
