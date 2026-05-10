@@ -95,6 +95,21 @@ class DirectLoopPdaPrinterBridge(
 
     @JavascriptInterface
     @Synchronized
+    fun getAppInfo(): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        return JSONObject()
+            .put("app_name", "Direct Loop PDA")
+            .put("version_name", BuildConfig.VERSION_NAME)
+            .put("version_code", BuildConfig.VERSION_CODE)
+            .put("package_name", BuildConfig.APPLICATION_ID)
+            .put("bridge_version", APP_INFO_BRIDGE_VERSION)
+            .put("supported_methods", supportedAppInfoMethods())
+            .toString()
+    }
+
+    @JavascriptInterface
+    @Synchronized
     fun getPrinterStatus(): String {
         return guardedStatus().toString()
     }
@@ -497,6 +512,15 @@ class DirectLoopPdaPrinterBridge(
             .put("last_error", statusError)
             .put("last_protocol_tested", lastProtocolTested)
             .put("last_print_result", lastPrintResult)
+    }
+
+    private fun supportedAppInfoMethods(): JSONArray {
+        return JSONArray()
+            .put("getPrinterStatus")
+            .put("connectPrinter")
+            .put("disconnectPrinter")
+            .put("printTestLabel")
+            .put("printStoreItemLabelPreview")
     }
 
     private fun refreshPrinterHealth(
@@ -1035,6 +1059,7 @@ class DirectLoopPdaPrinterBridge(
         private const val ONLINE_OFFLINE = "offline"
         private const val ONLINE_UNKNOWN = "unknown"
         private const val ONLINE_ERROR = "error"
+        private const val APP_INFO_BRIDGE_VERSION = "pda-android-20260510-appinfo"
         private const val SOURCE_PAIRED = "paired"
         private const val SOURCE_DISCOVERED = "discovered"
         private const val PRINTER_NOT_RESPONDING_MESSAGE = "Printer is not responding. Turn on the printer and reconnect."
