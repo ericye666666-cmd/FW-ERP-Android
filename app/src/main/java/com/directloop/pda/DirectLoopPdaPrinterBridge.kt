@@ -68,10 +68,18 @@ class DirectLoopPdaPrinterBridge(
     private var lastPreviewTransport = ""
     private var lastPreviewLabelSize = ""
     private var lastPreviewTsplCommand = ""
+    private var lastPreviewTsplLinesOverride: List<String>? = null
     private var lastPreviewTsplSentAt = ""
     private var lastPreviewTsplBytes = 0
     private var lastPreviewSdkOperations: List<String> = emptyList()
     private var previewPrintBusyUntilMs = 0L
+    private var k300CpclPrintInProgress = false
+    private var k300BatchLabelCount = 0
+    private var k300BatchSentCount = 0
+    private var k300BatchFailedCount = 0
+    private var k300BatchStartedAt = ""
+    private var k300BatchFinishedAt = ""
+    private var k300BatchLastError = ""
     private var socket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
     private val chitengOfficialPrinterClient = ChitengS1OfficialPrinterClient(activity.application)
@@ -555,7 +563,30 @@ class DirectLoopPdaPrinterBridge(
                 "flush",
                 "close_spp_socket",
             ),
+            useK300CpclInFlightGuard = true,
+            enforcePreviewBusyGuard = false,
         )
+    }
+
+    @JavascriptInterface
+    @Synchronized
+    fun printK300CpclRawBatch(payloadJson: String): String {
+        if (!isTrustedPage()) return untrustedStatus().toString()
+
+        lastProtocolTested = K300_CPCL_RAW_BATCH_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+
+        val payload = try {
+            validateK300CpclRawBatchPayload(payloadJson)
+        } catch (error: JSONException) {
+            return previewPrintFailure("K300 CPCL raw batch payload is invalid: ${error.message ?: "invalid JSON"}.")
+                .toString()
+        } catch (error: IllegalArgumentException) {
+            return previewPrintFailure("K300 CPCL raw batch payload is invalid: ${error.message ?: "invalid payload"}.")
+                .toString()
+        }
+
+        return sendK300CpclRawBatch(payload)
     }
 
     @JavascriptInterface
@@ -587,6 +618,8 @@ class DirectLoopPdaPrinterBridge(
                 "flush",
                 "close_spp_socket",
             ),
+            useK300CpclInFlightGuard = true,
+            enforcePreviewBusyGuard = false,
         )
     }
 
@@ -703,6 +736,7 @@ class DirectLoopPdaPrinterBridge(
         lastPreviewTransport = PREVIEW_TRANSPORT_UROVO_PRINTER_MANAGER
         lastPreviewLabelSize = labelSize
         lastPreviewTsplCommand = ""
+        lastPreviewTsplLinesOverride = null
         lastPreviewTsplSentAt = ""
         lastPreviewTsplBytes = 0
 
@@ -791,6 +825,7 @@ class DirectLoopPdaPrinterBridge(
             lastPreviewTransport = PREVIEW_TRANSPORT_CTPL_SDK_NO_LABEL_MODE
             lastPreviewLabelSize = payload.templateSize
             lastPreviewTsplCommand = ""
+            lastPreviewTsplLinesOverride = null
             lastPreviewTsplSentAt = ""
             lastPreviewTsplBytes = 0
             lastPreviewSdkOperations = payload.toCtplNoLabelModeOperationSummary()
@@ -836,6 +871,7 @@ class DirectLoopPdaPrinterBridge(
             lastPreviewTransport = PREVIEW_TRANSPORT_CTPL_SDK_BITMAP_DEMO
             lastPreviewLabelSize = payload.templateSize
             lastPreviewTsplCommand = ""
+            lastPreviewTsplLinesOverride = null
             lastPreviewTsplSentAt = ""
             lastPreviewTsplBytes = 0
             lastPreviewSdkOperations = payload.toCtplBitmapDemoOperationSummary()
@@ -882,6 +918,7 @@ class DirectLoopPdaPrinterBridge(
         lastPreviewTransport = PREVIEW_TRANSPORT_RAW_TSPL_SPP
         lastPreviewLabelSize = payload.templateSize
         lastPreviewTsplCommand = tspl
+        lastPreviewTsplLinesOverride = null
         lastPreviewTsplSentAt = timestamp()
         lastPreviewTsplBytes = bytes.size
         lastPreviewSdkOperations = emptyList()
@@ -1015,11 +1052,49 @@ class DirectLoopPdaPrinterBridge(
         require(protocol == "CPCL") { "protocol must be CPCL." }
 
         val cpclCommand = payload.optString("cpcl_command")
+        validateK300CpclCommand(cpclCommand)
+        return cpclCommand
+    }
+
+    private fun validateK300CpclRawBatchPayload(payloadJson: String): K300CpclRawBatchPayload {
+        val payload = JSONObject(payloadJson)
+        val labelTemplateSize = payload.optString("label_template_size").trim()
+        require(labelTemplateSize == "40x30") { "label_template_size must be 40x30." }
+
+        val protocol = payload.optString("protocol").trim().uppercase(Locale.US)
+        require(protocol == "CPCL") { "protocol must be CPCL." }
+
+        val labels = payload.optJSONArray("labels") ?: throw IllegalArgumentException("labels is required.")
+        require(labels.length() > 0) { "labels must not be empty." }
+        require(labels.length() <= 100) { "labels max count is 100." }
+
+        val parsedLabels = mutableListOf<K300CpclRawBatchLabel>()
+        for (index in 0 until labels.length()) {
+            val label = labels.optJSONObject(index)
+                ?: throw IllegalArgumentException("labels[$index] must be an object.")
+            val testName = label.optString("test_name").trim().ifBlank { "label_${index + 1}" }
+            val cpclCommand = label.optString("cpcl_command")
+            val bytes = validateK300CpclCommand(cpclCommand)
+            parsedLabels.add(
+                K300CpclRawBatchLabel(
+                    testName = testName,
+                    cpclCommand = cpclCommand,
+                    bytes = bytes,
+                ),
+            )
+        }
+
+        return K300CpclRawBatchPayload(
+            batchName = payload.optString("batch_name").trim().ifBlank { "k300_cpcl_raw_batch" },
+            labels = parsedLabels,
+        )
+    }
+
+    private fun validateK300CpclCommand(cpclCommand: String): ByteArray {
         require(cpclCommand.isNotBlank()) { "cpcl_command is required." }
         require(Regex("\\bPRINT\\b", RegexOption.IGNORE_CASE).containsMatchIn(cpclCommand)) {
             "cpcl_command must include PRINT."
         }
-
         val dangerousCommands = Regex("\\b(FILE|DELETE|FORMAT|DOWNLOAD|RUN|EXEC)\\b", RegexOption.IGNORE_CASE)
         require(!dangerousCommands.containsMatchIn(cpclCommand)) {
             "cpcl_command contains unsupported CPCL command."
@@ -1027,7 +1102,7 @@ class DirectLoopPdaPrinterBridge(
 
         val cpclBytes = cpclCommand.toByteArray(Charset.forName("GBK"))
         require(cpclBytes.size < 2000) { "cpcl_command must be under 2000 bytes." }
-        return cpclCommand
+        return cpclBytes
     }
 
     private fun buildK300CpclStoreItemPreviewCommand(
@@ -1074,6 +1149,7 @@ class DirectLoopPdaPrinterBridge(
         lastPreviewTransport = PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP
         lastPreviewLabelSize = ""
         lastPreviewTsplCommand = ""
+        lastPreviewTsplLinesOverride = null
         lastPreviewTsplSentAt = timestamp()
         lastPreviewTsplBytes = 2
         lastPreviewSdkOperations = K300_SPP_CONNECT_TEST_OPERATIONS
@@ -1121,44 +1197,63 @@ class DirectLoopPdaPrinterBridge(
         command: String,
         bytes: ByteArray,
         operations: List<String>,
+        useK300CpclInFlightGuard: Boolean = false,
+        enforcePreviewBusyGuard: Boolean = true,
     ): String {
         selectedProfile = DirectLoopPrinterProfile.UROVO_K300
         lastProtocolTested = protocol
         lastPrintResult = RESULT_FAILED
 
-        val target = k300SppTargetOrFailure() ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+        if (useK300CpclInFlightGuard && k300CpclPrintInProgress) {
+            return previewPrintFailure("K300 CPCL print is already running.").toString()
+        }
 
-        previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        val target = k300SppTargetOrFailure(enforcePreviewBusyGuard = enforcePreviewBusyGuard)
+            ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+
+        if (useK300CpclInFlightGuard) {
+            k300CpclPrintInProgress = true
+        } else {
+            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+        }
         chitengOfficialPrinterClient.disconnect()
         closeSocket()
         connectionStatus = STATUS_CONNECTING
         lastPreviewTransport = PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP
         lastPreviewLabelSize = "40x30"
         lastPreviewTsplCommand = command
+        lastPreviewTsplLinesOverride = null
         lastPreviewTsplSentAt = timestamp()
         lastPreviewTsplBytes = bytes.size
         lastPreviewSdkOperations = operations
+        resetK300BatchSummary()
 
         return try {
             writeOneShotSppBytes(target.adapter, target.bondedDevice, bytes)
-            previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            if (!useK300CpclInFlightGuard) {
+                previewPrintBusyUntilMs = System.currentTimeMillis() + PREVIEW_PRINT_BUSY_WINDOW_MS
+            }
             connectionStatus = STATUS_DISCONNECTED
             printerOnlineStatus = ONLINE_UNKNOWN
             lastPrintResult = RESULT_SUCCESS
             lastError = ""
             statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
         } catch (error: SecurityException) {
-            previewPrintBusyUntilMs = 0L
+            if (!useK300CpclInFlightGuard) previewPrintBusyUntilMs = 0L
             connectionStatus = STATUS_ERROR
             previewPrintFailure("Bluetooth permission denied while sending K300 Bluetooth SPP diagnostic.").toString()
         } catch (error: IOException) {
-            previewPrintBusyUntilMs = 0L
+            if (!useK300CpclInFlightGuard) previewPrintBusyUntilMs = 0L
             connectionStatus = STATUS_ERROR
             previewPrintFailure("K300 Bluetooth SPP diagnostic send failed: ${error.message ?: "unknown error"}.").toString()
         } catch (error: RuntimeException) {
-            previewPrintBusyUntilMs = 0L
+            if (!useK300CpclInFlightGuard) previewPrintBusyUntilMs = 0L
             connectionStatus = STATUS_ERROR
             previewPrintFailure("K300 Bluetooth SPP diagnostic failed: ${error.message ?: "unknown error"}.").toString()
+        } finally {
+            if (useK300CpclInFlightGuard) {
+                k300CpclPrintInProgress = false
+            }
         }
     }
 
@@ -1177,7 +1272,96 @@ class DirectLoopPdaPrinterBridge(
                 "flush",
                 "close_spp_socket",
             ),
+            useK300CpclInFlightGuard = true,
+            enforcePreviewBusyGuard = false,
         )
+    }
+
+    private fun sendK300CpclRawBatch(payload: K300CpclRawBatchPayload): String {
+        selectedProfile = DirectLoopPrinterProfile.UROVO_K300
+        lastProtocolTested = K300_CPCL_RAW_BATCH_PROTOCOL
+        lastPrintResult = RESULT_FAILED
+
+        if (k300CpclPrintInProgress) {
+            return previewPrintFailure("K300 CPCL print is already running.").toString()
+        }
+
+        val target = k300SppTargetOrFailure(enforcePreviewBusyGuard = false)
+            ?: return statusJson(bridgeAvailable = true, refreshHealth = false).toString()
+
+        val startedAt = timestamp()
+        k300CpclPrintInProgress = true
+        chitengOfficialPrinterClient.disconnect()
+        closeSocket()
+        connectionStatus = STATUS_CONNECTING
+        lastPreviewTransport = PREVIEW_TRANSPORT_K300_BLUETOOTH_SPP
+        lastPreviewLabelSize = "40x30"
+        lastPreviewTsplCommand = "K300 CPCL raw batch: labels=${payload.labels.size}"
+        lastPreviewTsplLinesOverride = listOf(
+            "batch_name=${payload.batchName}",
+            "label_count=${payload.labels.size}",
+            "first_test_name=${payload.labels.first().testName}",
+            "last_test_name=${payload.labels.last().testName}",
+        )
+        lastPreviewTsplSentAt = startedAt
+        lastPreviewTsplBytes = payload.labels.sumOf { it.bytes.size }
+        lastPreviewSdkOperations = listOf("open_spp_socket", "write_cpcl_raw_batch_start") +
+            payload.labels.mapIndexed { index, _ -> "write_cpcl_raw_batch_label_${index + 1}" } +
+            listOf("flush", "close_spp_socket")
+        k300BatchLabelCount = payload.labels.size
+        k300BatchSentCount = 0
+        k300BatchFailedCount = 0
+        k300BatchStartedAt = startedAt
+        k300BatchFinishedAt = ""
+        k300BatchLastError = ""
+
+        return try {
+            connectSocket(
+                adapter = target.adapter,
+                selection = PrinterSelection(
+                    profile = DirectLoopPrinterProfile.UROVO_K300,
+                    address = selectedPrinterAddress,
+                    name = selectedPrinterName,
+                ),
+                bondedDevice = target.bondedDevice,
+            )
+            val stream = outputStream ?: throw IOException("Bluetooth SPP output stream is not available.")
+            for ((index, label) in payload.labels.withIndex()) {
+                stream.write(label.bytes)
+                stream.flush()
+                k300BatchSentCount = index + 1
+                if (index < payload.labels.size - 1) {
+                    Thread.sleep(500L)
+                }
+            }
+            k300BatchFinishedAt = timestamp()
+            connectionStatus = STATUS_DISCONNECTED
+            printerOnlineStatus = ONLINE_UNKNOWN
+            lastPrintResult = RESULT_SUCCESS
+            lastError = ""
+            statusJson(bridgeAvailable = true, errorOverride = "", refreshHealth = false).toString()
+        } catch (error: SecurityException) {
+            k300BatchFailedCount = payload.labels.size - k300BatchSentCount
+            k300BatchFinishedAt = timestamp()
+            k300BatchLastError = "Bluetooth permission denied while sending K300 CPCL raw batch."
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure(k300BatchLastError).toString()
+        } catch (error: IOException) {
+            k300BatchFailedCount = payload.labels.size - k300BatchSentCount
+            k300BatchFinishedAt = timestamp()
+            k300BatchLastError = "K300 CPCL raw batch send failed: ${error.message ?: "unknown error"}."
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure(k300BatchLastError).toString()
+        } catch (error: RuntimeException) {
+            k300BatchFailedCount = payload.labels.size - k300BatchSentCount
+            k300BatchFinishedAt = timestamp()
+            k300BatchLastError = "K300 CPCL raw batch failed: ${error.message ?: "unknown error"}."
+            connectionStatus = STATUS_ERROR
+            previewPrintFailure(k300BatchLastError).toString()
+        } finally {
+            k300CpclPrintInProgress = false
+            closeSocket()
+        }
     }
 
     private fun sendOneShotRawS1DiagnosticTspl(
@@ -1198,6 +1382,7 @@ class DirectLoopPdaPrinterBridge(
         lastPreviewTransport = PREVIEW_TRANSPORT_RAW_TSPL_SPP
         lastPreviewLabelSize = "40x30"
         lastPreviewTsplCommand = command
+        lastPreviewTsplLinesOverride = null
         lastPreviewTsplSentAt = timestamp()
         lastPreviewTsplBytes = bytes.size
         lastPreviewSdkOperations = emptyList()
@@ -1238,7 +1423,7 @@ class DirectLoopPdaPrinterBridge(
         }
     }
 
-    private fun k300SppTargetOrFailure(): PreviewPrintTarget? {
+    private fun k300SppTargetOrFailure(enforcePreviewBusyGuard: Boolean = true): PreviewPrintTarget? {
         if (selectedPrinterAddress.isBlank()) {
             previewPrintFailure(
                 "No Bluetooth printer is selected. Select a paired K300 printer before running K300 Bluetooth SPP diagnostics.",
@@ -1264,7 +1449,7 @@ class DirectLoopPdaPrinterBridge(
             previewPrintFailure("请先在 Android 系统蓝牙中完成配对后再连接。")
             return null
         }
-        if (System.currentTimeMillis() < previewPrintBusyUntilMs) {
+        if (enforcePreviewBusyGuard && System.currentTimeMillis() < previewPrintBusyUntilMs) {
             previewPrintFailure("Printer is busy. Wait before printing again.")
             return null
         }
@@ -1464,8 +1649,14 @@ class DirectLoopPdaPrinterBridge(
             .put("last_preview_tspl_sent_at", lastPreviewTsplSentAt)
             .put("last_preview_tspl_bytes", lastPreviewTsplBytes)
             .put("last_preview_tspl_command", lastPreviewTsplCommand)
-            .put("last_preview_tspl_lines", tsplLines(lastPreviewTsplCommand))
+            .put("last_preview_tspl_lines", previewTsplLines())
             .put("last_preview_sdk_operations", jsonArray(lastPreviewSdkOperations))
+            .put("k300_batch_label_count", k300BatchLabelCount)
+            .put("k300_batch_sent_count", k300BatchSentCount)
+            .put("k300_batch_failed_count", k300BatchFailedCount)
+            .put("k300_batch_started_at", k300BatchStartedAt)
+            .put("k300_batch_finished_at", k300BatchFinishedAt)
+            .put("k300_batch_last_error", k300BatchLastError)
     }
 
     private fun supportedAppInfoMethods(): JSONArray {
@@ -1492,6 +1683,7 @@ class DirectLoopPdaPrinterBridge(
             .put("printK300CpclCode128QuietZoneTest")
             .put("printK300CpclCode128CompactTopTest")
             .put("printK300CpclRawPreview")
+            .put("printK300CpclRawBatch")
             .put("printK300CpclStoreItemPreview")
             .put("printK300TsplMinText")
             .put("printK300TsplBlackBox")
@@ -1505,6 +1697,23 @@ class DirectLoopPdaPrinterBridge(
                 .filter { it.isNotBlank() }
                 .forEach { line -> put(line) }
         }
+    }
+
+    private fun previewTsplLines(): JSONArray {
+        val overrideLines = lastPreviewTsplLinesOverride
+        if (overrideLines != null) {
+            return jsonArray(overrideLines)
+        }
+        return tsplLines(lastPreviewTsplCommand)
+    }
+
+    private fun resetK300BatchSummary() {
+        k300BatchLabelCount = 0
+        k300BatchSentCount = 0
+        k300BatchFailedCount = 0
+        k300BatchStartedAt = ""
+        k300BatchFinishedAt = ""
+        k300BatchLastError = ""
     }
 
     private fun jsonArray(values: List<String>): JSONArray {
@@ -2077,6 +2286,17 @@ class DirectLoopPdaPrinterBridge(
         val bondedDevice: BluetoothDevice,
     )
 
+    private data class K300CpclRawBatchPayload(
+        val batchName: String,
+        val labels: List<K300CpclRawBatchLabel>,
+    )
+
+    private data class K300CpclRawBatchLabel(
+        val testName: String,
+        val cpclCommand: String,
+        val bytes: ByteArray,
+    )
+
     private data class DiscoveredPrinter(
         val name: String,
         val address: String,
@@ -2136,6 +2356,7 @@ class DirectLoopPdaPrinterBridge(
         private const val K300_CPCL_CODE128_QUIET_ZONE_TEST_PROTOCOL = "K300_CPCL_CODE128_QUIET_ZONE_TEST"
         private const val K300_CPCL_CODE128_COMPACT_TOP_TEST_PROTOCOL = "K300_CPCL_CODE128_COMPACT_TOP_TEST"
         private const val K300_CPCL_RAW_PREVIEW_PROTOCOL = "K300_CPCL_RAW_PREVIEW"
+        private const val K300_CPCL_RAW_BATCH_PROTOCOL = "K300_CPCL_RAW_BATCH"
         private const val K300_CPCL_STORE_ITEM_PREVIEW_PROTOCOL = "K300_CPCL_STORE_ITEM_PREVIEW"
         private const val K300_TSPL_MIN_TEXT_PROTOCOL = "K300_TSPL_MIN_TEXT"
         private const val K300_TSPL_BLACK_BOX_PROTOCOL = "K300_TSPL_BLACK_BOX"
