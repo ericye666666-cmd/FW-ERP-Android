@@ -98,6 +98,7 @@ Supported bridge methods:
 - `printK300CpclCode128QuietZoneTest()`
 - `printK300CpclCode128CompactTopTest()`
 - `printK300CpclRawPreview(payloadJson)`
+- `printK300CpclRawBatch(payloadJson)`
 - `printK300CpclStoreItemPreview(payloadJson)`
 - `printK300TsplMinText()`
 - `printK300TsplBlackBox()`
@@ -138,6 +139,7 @@ and does not expose secrets, printer credentials, or business data:
     "printK300CpclCode128QuietZoneTest",
     "printK300CpclCode128CompactTopTest",
     "printK300CpclRawPreview",
+    "printK300CpclRawBatch",
     "printK300CpclStoreItemPreview",
     "printK300TsplMinText",
     "printK300TsplBlackBox",
@@ -336,6 +338,21 @@ print success:
   must be under 2000 GBK bytes. It reports `K300_CPCL_RAW_PREVIEW`,
   `K300_BLUETOOTH_SPP`, the exact CPCL command, parsed command lines, byte
   count, and operations including `write_cpcl_raw_preview`.
+- `printK300CpclRawBatch(payloadJson)` accepts a FW-ERP-provided 40x30 CPCL
+  batch payload for continuous K300 template tests. It requires
+  `label_template_size = 40x30`, `protocol = CPCL`, and `labels` with 1 to 100
+  entries. Each entry must include `cpcl_command` containing `PRINT`, must avoid
+  `FILE`, `DELETE`, `FORMAT`, `DOWNLOAD`, `RUN`, and `EXEC`, and must be under
+  2000 GBK bytes. The method opens one K300 Bluetooth SPP socket for the batch,
+  writes each label command, flushes after each label, sleeps 500 ms between
+  labels, and closes the socket. It does not use the 8-second single-label
+  preview cooldown; it only rejects calls while another K300 CPCL write is
+  actively running with `K300 CPCL print is already running.` It reports
+  `K300_CPCL_RAW_BATCH`, `K300_BLUETOOTH_SPP`, `K300 CPCL raw batch:
+  labels=<count>`, batch summary lines, total bytes, and
+  `k300_batch_label_count`, `k300_batch_sent_count`,
+  `k300_batch_failed_count`, `k300_batch_started_at`,
+  `k300_batch_finished_at`, and `k300_batch_last_error`.
 - `printK300CpclStoreItemPreview(payloadJson)` validates exactly one
   FW-ERP-provided `UROVO_K300` 40x30 STORE_ITEM preview payload and sends CPCL:
   `TEXT 4 0 20 18 {category_short / grade}`, `TEXT 7 0 20 50 KES {price}`,
@@ -367,8 +384,9 @@ the FW-ERP PDA diagnostics panel can prove which preview path was used:
 `K300_ESCPOS_MIN_TEXT`, `K300_CPCL_MIN_TEXT`, `K300_CPCL_CODE128_TEST`,
 `K300_CPCL_CODE128_WIDE_TEST`, `K300_CPCL_CODE128_TALL_TEST`,
 `K300_CPCL_CODE128_QUIET_ZONE_TEST`, `K300_CPCL_CODE128_COMPACT_TOP_TEST`,
-`K300_CPCL_RAW_PREVIEW`, `K300_CPCL_STORE_ITEM_PREVIEW`, `K300_TSPL_MIN_TEXT`,
-or `K300_TSPL_BLACK_BOX`.
+`K300_CPCL_RAW_PREVIEW`, `K300_CPCL_RAW_BATCH`,
+`K300_CPCL_STORE_ITEM_PREVIEW`, `K300_TSPL_MIN_TEXT`, or
+`K300_TSPL_BLACK_BOX`.
 The external K300 SPP connection probe reports `K300_SPP_CONNECT_TEST`.
 `last_preview_transport` should be one of `CTPL_SDK_NO_LABEL_MODE`,
 `CTPL_SDK_BITMAP_DEMO`, `RAW_TSPL_SPP`, `UROVO_PRINTER_MANAGER`, or
@@ -418,6 +436,7 @@ Contract summary:
 - Adds `printK300CpclCode128QuietZoneTest()`.
 - Adds `printK300CpclCode128CompactTopTest()`.
 - Adds `printK300CpclRawPreview(payloadJson)`.
+- Adds `printK300CpclRawBatch(payloadJson)`.
 - Adds `printK300CpclStoreItemPreview(payloadJson)`.
 - Adds `printK300TsplMinText()`.
 - Adds `printK300TsplBlackBox()`.
@@ -427,7 +446,7 @@ Contract summary:
 - Requires `machine_code` to be numeric and start with `5`.
 - Android only prints FW-ERP-provided barcode payload.
 - Sends raw TSPL only through the explicit raw TSPL diagnostic method.
-- No batch printing.
+- No STORE_ITEM business batch printing.
 - No print job is marked printed.
 - No sticker confirmation.
 - No barcode generation in Android.
