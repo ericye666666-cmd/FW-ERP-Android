@@ -2,15 +2,17 @@
 
 Direct Loop PDA is the first Android WebView shell for FW-ERP.
 
-The Android app loads the existing FW-ERP `/app/`:
+The Android app loads the existing FW-ERP `/app/` through fixed Android build
+flavors:
 
-```text
-https://fw-erp-34-35-52-250.nip.io/app/
-```
+| Flavor | App name | Package name | Web URL |
+| --- | --- | --- | --- |
+| `production` | `Direct Loop PDA` | `com.directloop.erp.pda` | `https://directlooperp.com/app/` |
+| `staging` | `Direct Loop PDA Staging` | `com.directloop.erp.pda.staging` | `https://staging.directlooperp.com/app/` |
 
-The FW-ERP endpoint URL and host are configured through Android `BuildConfig`
-fields in `app/build.gradle.kts`. Future production or staging domain changes
-should update those BuildConfig values instead of changing app logic.
+The FW-ERP endpoint URL, trusted host, app name, and package name are configured
+through Android product flavors in `app/build.gradle.kts`. Do not add an
+in-app environment switch for store staff; build the correct APK instead.
 
 ## Scope
 
@@ -31,8 +33,15 @@ should update those BuildConfig values instead of changing app logic.
 
 ## Current behavior
 
-- App name: `Direct Loop PDA`.
-- Opens FW-ERP `/app/` in a portrait-only Android WebView.
+- Production app name: `Direct Loop PDA`.
+- Production package name: `com.directloop.erp.pda`.
+- Production WebView URL: `https://directlooperp.com/app/`.
+- Staging app name: `Direct Loop PDA Staging`.
+- Staging package name: `com.directloop.erp.pda.staging`.
+- Staging WebView URL: `https://staging.directlooperp.com/app/`.
+- Production and staging can be installed on the same device because they use
+  different package names and therefore separate WebView storage.
+- Opens the configured FW-ERP `/app/` in a portrait-only Android WebView.
 - Enables JavaScript, DOM storage, localStorage/sessionStorage, cookies, and WebView persistence needed for login.
 - Keeps FW-ERP role landing inside the web app:
   - `store_clerk` can reach the PDA clerk flow, including #195 PDA 现场分堆标价 UI.
@@ -114,7 +123,7 @@ and does not expose secrets, printer credentials, or business data:
   "app_name": "Direct Loop PDA",
   "version_name": "0.1.0",
   "version_code": 1,
-  "package_name": "com.directloop.pda",
+  "package_name": "com.directloop.erp.pda",
   "bridge_version": "pda-android-20260510-appinfo",
   "supported_methods": [
     "getPrinterStatus",
@@ -147,6 +156,9 @@ and does not expose secrets, printer credentials, or business data:
   ]
 }
 ```
+
+For the staging flavor, `getAppInfo()` reports app name
+`Direct Loop PDA STAGING` and package name `com.directloop.erp.pda.staging`.
 
 `getPrinterStatus()` also reports `discovery_status`,
 `discovered_printer_count`, `discovered_printers`, `printer_online_status`,
@@ -562,51 +574,61 @@ regenerate business barcodes.
 
 Open the repo in Android Studio and sync Gradle.
 
-The project is a Kotlin Android project with package:
+The project is a Kotlin Android project with two fixed environment flavors:
 
-```text
-com.directloop.pda
+```bash
+./gradlew assembleProductionDebug
+./gradlew assembleStagingDebug
 ```
+
+`assembleProductionDebug` builds `Direct Loop PDA` with package
+`com.directloop.erp.pda` and WebView URL `https://directlooperp.com/app/`.
+`assembleStagingDebug` builds `Direct Loop PDA Staging` with package
+`com.directloop.erp.pda.staging` and WebView URL
+`https://staging.directlooperp.com/app/`.
 
 Local files such as `local.properties`, `.gradle/`, `build/`, APKs, and AABs are ignored and should not be committed.
 
-## Download Debug APK from GitHub Actions
+## Download Debug APKs from GitHub Actions
 
-The debug APK is for internal staging PDA testing. It still loads the configured
-FW-ERP staging app:
-
-```text
-https://fw-erp-34-35-52-250.nip.io/app/
-```
+The workflow builds both environment APKs. Production APKs are for real store
+staff; staging APKs are for owners, testers, Codex/GPT validation, and PR
+acceptance.
 
 Non-developer install steps:
 
 1. Open the GitHub repository for `FW-ERP-Android`.
 2. Click the `Actions` tab.
-3. Open the latest `Build Debug APK` run.
-4. Download the `direct-loop-pda-debug-apk` artifact.
+3. Open the latest `Build Environment Debug APKs` run.
+4. Download the `direct-loop-pda-environment-debug-apks` artifact.
 5. Unzip the download if GitHub saves it as a `.zip` file.
-6. Find `direct-loop-pda-debug.apk`.
+6. Find `direct-loop-pda-production-debug.apk` or
+   `direct-loop-pda-staging-debug.apk`.
 7. Transfer the APK to the PDA or Android phone.
 8. Install the APK on the device.
 9. If Android blocks installation, allow install from unknown sources for the
    app you used to open the APK.
-10. Open `Direct Loop PDA`.
-11. Confirm the app loads `https://fw-erp-34-35-52-250.nip.io/app/`.
+10. Open `Direct Loop PDA` or `Direct Loop PDA Staging`.
+11. Confirm production loads `https://directlooperp.com/app/` and staging loads
+    `https://staging.directlooperp.com/app/`.
 
 ## PDA login session debug test
 
-Use this check when validating a new internal debug APK on a real PDA:
+Use this check when validating new internal debug APKs on a real PDA:
 
-1. Clear Direct Loop PDA app storage once after installing the new APK.
-2. Open Direct Loop PDA and confirm the API base shown by FW-ERP is the staging
-   API.
-3. Log in as `Austin / demo1234`.
-4. Confirm the app stays in `店员 PDA 工作台` and does not return to the login
+1. Install both APKs on the same device.
+2. Confirm the launcher shows `Direct Loop PDA` and
+   `Direct Loop PDA Staging` as separate apps.
+3. Open the production app and confirm FW-ERP resolves the production API base.
+4. Open the staging app and confirm FW-ERP resolves the staging API base.
+5. Log in with the correct account for each environment.
+6. Confirm each app stays in its expected PDA workspace and does not return to the login
    page.
-5. Close and reopen Direct Loop PDA.
-6. Confirm the session is still present when WebView storage persists, or at
-   minimum that Android did not clear the FW-ERP localStorage keys unexpectedly.
+7. Close and reopen both apps.
+8. Confirm each session is isolated. Because the package names differ, Android
+   keeps production and staging WebView cache, cookies, and localStorage
+   separate. Old single-package debug APKs may still have stale localStorage;
+   uninstall or clear storage for that old app once during migration.
 
 In debug builds, Android Logcat includes a `DirectLoopPDA` storage probe after
 page load. It reports only whether these localStorage keys exist, not their
@@ -622,8 +644,8 @@ GitHub Actions debug APKs should use one stable internal signing key. Android
 checks the signing certificate when installing an APK over an existing app with
 the same package name, so a differently signed debug APK can be blocked as a
 signature conflict. Stable signing lets internal testers install future
-`direct-loop-pda-debug.apk` artifacts as updates over the previous Direct Loop
-PDA debug APK.
+`direct-loop-pda-production-debug.apk` and `direct-loop-pda-staging-debug.apk`
+artifacts as updates over previous environment-specific debug APKs.
 
 Configure these GitHub repository secrets before relying on update installs:
 
@@ -660,7 +682,8 @@ bash scripts/validate_webview_shell.sh
 If Android SDK and Gradle are installed, also run:
 
 ```bash
-./gradlew assembleDebug
+./gradlew assembleProductionDebug
+./gradlew assembleStagingDebug
 ```
 
 Manual PDA scanner-mode test:
@@ -677,7 +700,7 @@ Manual PDA scanner-mode test:
 Manual Bluetooth printer diagnostic test:
 1. Pair Chiteng S1 in Android Bluetooth settings.
 2. Pair the Urovo Bluetooth printer in Android Bluetooth settings.
-3. Open `Direct Loop PDA`.
+3. Open `Direct Loop PDA` or `Direct Loop PDA Staging`.
 4. In FW-ERP, open `Clerk PDA -> 我的 -> 蓝牙打印机测试` or
    `Clerk PDA -> 我的 -> 打印机连接` using `window.DirectLoopPdaPrinter`.
 5. Confirm `listPairedPrinters()` returns paired devices.

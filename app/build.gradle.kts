@@ -4,6 +4,7 @@ plugins {
 }
 
 fun signingEnv(name: String): String? = System.getenv(name)?.takeIf { it.isNotBlank() }
+fun buildConfigString(value: String): String = "\"$value\""
 
 val pdaDebugKeystorePath = signingEnv("PDA_DEBUG_KEYSTORE_PATH")
 val pdaDebugKeystorePassword = signingEnv("PDA_DEBUG_KEYSTORE_PASSWORD")
@@ -21,22 +22,35 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.directloop.pda"
+        applicationId = "com.directloop.erp.pda"
         minSdk = 23
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+    }
 
-        buildConfigField(
-            "String",
-            "FW_ERP_APP_URL",
-            "\"https://fw-erp-34-35-52-250.nip.io/app/\"",
-        )
-        buildConfigField(
-            "String",
-            "FW_ERP_HOST",
-            "\"fw-erp-34-35-52-250.nip.io\"",
-        )
+    flavorDimensions += "environment"
+    productFlavors {
+        create("production") {
+            dimension = "environment"
+            applicationId = "com.directloop.erp.pda"
+            resValue("string", "app_name", "Direct Loop PDA")
+            buildConfigField("String", "FW_ERP_APP_URL", buildConfigString("https://directlooperp.com/app/"))
+            buildConfigField("String", "FW_ERP_HOST", buildConfigString("directlooperp.com"))
+            buildConfigField("String", "PDA_ENVIRONMENT", buildConfigString("production"))
+            buildConfigField("String", "PDA_SPLASH_TITLE", buildConfigString("Direct Loop PDA"))
+        }
+
+        create("staging") {
+            dimension = "environment"
+            applicationId = "com.directloop.erp.pda.staging"
+            versionNameSuffix = "-staging"
+            resValue("string", "app_name", "Direct Loop PDA Staging")
+            buildConfigField("String", "FW_ERP_APP_URL", buildConfigString("https://staging.directlooperp.com/app/"))
+            buildConfigField("String", "FW_ERP_HOST", buildConfigString("staging.directlooperp.com"))
+            buildConfigField("String", "PDA_ENVIRONMENT", buildConfigString("staging"))
+            buildConfigField("String", "PDA_SPLASH_TITLE", buildConfigString("Direct Loop PDA STAGING"))
+        }
     }
 
     compileOptions {

@@ -186,7 +186,7 @@ class MainActivity : Activity() {
         }
 
         val title = TextView(this).apply {
-            text = SPLASH_TITLE
+            text = BuildConfig.PDA_SPLASH_TITLE
             textSize = 28f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
@@ -618,7 +618,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val TAG = "DirectLoopPDA"
-        private const val SPLASH_TITLE = "Direct Loop PDA"
         private const val PRINTER_BRIDGE_NAME = "DirectLoopPdaPrinter"
         private const val FRESH_LOAD_INTERVAL_MS = 5000L
         private const val WEB_SESSION_STORAGE_PROBE_SCRIPT = """
