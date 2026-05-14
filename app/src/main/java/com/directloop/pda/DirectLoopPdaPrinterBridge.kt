@@ -121,7 +121,7 @@ class DirectLoopPdaPrinterBridge(
         if (!isTrustedPage()) return untrustedStatus().toString()
 
         return JSONObject()
-            .put("app_name", "Direct Loop PDA")
+            .put("app_name", BuildConfig.PDA_SPLASH_TITLE)
             .put("version_name", BuildConfig.VERSION_NAME)
             .put("version_code", BuildConfig.VERSION_CODE)
             .put("package_name", BuildConfig.APPLICATION_ID)
