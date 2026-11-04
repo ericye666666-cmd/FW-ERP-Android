@@ -60,3 +60,18 @@ jobs:
           path: direct-loop-pda-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Build MEIJIAMEI factory debug APK
+        env:
+          PDA_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/pda-debug.keystore
+        run: |
+          ./gradlew assembleDebug -Pbrand=meijiamei
+          cp app/build/outputs/apk/debug/app-debug.apk meijiamei-debug.apk
+
+      - name: Upload MEIJIAMEI factory debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: meijiamei-debug-apk
+          path: meijiamei-debug.apk
+          if-no-files-found: error
+          retention-days: 14
