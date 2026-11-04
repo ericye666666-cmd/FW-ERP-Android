@@ -30,11 +30,13 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # The runner image ships an Android SDK; android-actions/setup-android@v3
+      # now fails on it (its sdkmanager call exits 1), so use the SDK directly.
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Decode stable debug signing key
         if: ${{ env.PDA_DEBUG_KEYSTORE_BASE64 != '' }}
