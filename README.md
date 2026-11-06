@@ -686,3 +686,19 @@ Manual Bluetooth printer diagnostic test:
 7. Select `CHITENG_S1`, connect, then test `CHITENG_S1_OFFICIAL`, `TSPL`, `TSPL_SIMPLE_TEXT`, `TSPL_DENSITY_TEXT`, `TSPL_NO_GAP_CONTINUOUS`, `TSPL_GAP_DETECT`, `RAW_LF_FEED`, `ESC_POS_TEXT`, `CPCL_SIMPLE_TEXT`, `CPCL`, and `ESC_POS`.
 8. Select `UROVO`, connect, then test `TSPL`, `CPCL`, and `ESC_POS`.
 9. Record which protocol prints correctly for each model.
+
+## MEIJIAMEI factory app
+
+The same shell also builds the MEIJIAMEI mattress factory app, pointed at the
+factory's own YXSYSTEM instance:
+
+```text
+./gradlew assembleDebug -Pbrand=meijiamei
+```
+
+- App name `MEIJIAMEI`, app id `com.meijiamei.factory`, so it installs next to
+  Direct Loop PDA.
+- Opens `https://meijiamei.directlooperp.com/app/`.
+- Launcher icon and strings live in `app/src/meijiamei/`.
+- Without `-Pbrand` the build is the Direct Loop PDA exactly as before.
+- CI uploads it as the `meijiamei-debug-apk` artifact.

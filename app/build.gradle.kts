@@ -16,6 +16,14 @@ val pdaDebugSigningEnvComplete = listOf(
     pdaDebugKeyPassword,
 ).all { it != null }
 
+// Brand of the WebView shell. Default is the Direct Loop PDA; build the
+// MEIJIAMEI mattress factory app with `./gradlew assembleDebug -Pbrand=meijiamei`.
+// The factory app is the same shell pointed at its own YXSYSTEM instance, with
+// its own app id, name and launcher icon (src/meijiamei).
+val shellBrand = (findProperty("brand") as String?)?.trim()?.lowercase().orEmpty().ifBlank { "directloop" }
+val isMeijiamei = shellBrand == "meijiamei"
+require(shellBrand in setOf("directloop", "meijiamei")) { "Unknown brand: $shellBrand" }
+
 android {
     namespace = "com.directloop.pda"
     compileSdk = 35
@@ -50,6 +58,18 @@ android {
             storePassword = pdaDebugKeystorePassword
             keyAlias = pdaDebugKeyAlias
             keyPassword = pdaDebugKeyPassword
+        }
+    }
+
+    if (isMeijiamei) {
+        defaultConfig.applicationId = "com.meijiamei.factory"
+        defaultConfig.buildConfigField("String", "FW_ERP_APP_URL", "\"https://meijiamei.directlooperp.com/app/\"")
+        defaultConfig.buildConfigField("String", "FW_ERP_HOST", "\"meijiamei.directlooperp.com\"")
+        // Build-type source sets override main, so the brand's strings and
+        // icon replace the Direct Loop ones without duplicate resources.
+        listOf("debug", "release").forEach { type ->
+            sourceSets.getByName(type).res.srcDir("src/meijiamei/res")
+            sourceSets.getByName(type).manifest.srcFile("src/meijiamei/AndroidManifest.xml")
         }
     }
 

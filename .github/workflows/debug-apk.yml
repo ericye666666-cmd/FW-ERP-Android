@@ -30,11 +30,13 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # The runner image ships an Android SDK; android-actions/setup-android@v3
+      # now fails on it (its sdkmanager call exits 1), so use the SDK directly.
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Decode stable debug signing key
         if: ${{ env.PDA_DEBUG_KEYSTORE_BASE64 != '' }}
@@ -58,5 +60,20 @@ jobs:
         with:
           name: direct-loop-pda-debug-apk
           path: direct-loop-pda-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build MEIJIAMEI factory debug APK
+        env:
+          PDA_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/pda-debug.keystore
+        run: |
+          ./gradlew assembleDebug -Pbrand=meijiamei
+          cp app/build/outputs/apk/debug/app-debug.apk meijiamei-debug.apk
+
+      - name: Upload MEIJIAMEI factory debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: meijiamei-debug-apk
+          path: meijiamei-debug.apk
           if-no-files-found: error
           retention-days: 14
