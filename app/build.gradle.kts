@@ -63,8 +63,12 @@ android {
 
     if (isMeijiamei) {
         defaultConfig.applicationId = "com.meijiamei.factory"
-        defaultConfig.buildConfigField("String", "FW_ERP_APP_URL", "\"https://meijiamei.directlooperp.com/app/\"")
-        defaultConfig.buildConfigField("String", "FW_ERP_HOST", "\"meijiamei.directlooperp.com\"")
+        // Until meijiamei.directlooperp.com has DNS the live server is only on
+        // its nip.io address; pass -PmeijiameiHost=... to build for another host.
+        val meijiameiHost = (project.findProperty("meijiameiHost") as String?)
+            ?: "meijiamei-34-35-52-250.nip.io"
+        defaultConfig.buildConfigField("String", "FW_ERP_APP_URL", "\"https://$meijiameiHost/app/\"")
+        defaultConfig.buildConfigField("String", "FW_ERP_HOST", "\"$meijiameiHost\"")
         // Build-type source sets override main, so the brand's strings and
         // icon replace the Direct Loop ones without duplicate resources.
         listOf("debug", "release").forEach { type ->
